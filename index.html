@@ -61,6 +61,9 @@
     .xr-info { margin-top: 6px; display: inline-block; background: rgba(0,0,0,.55); border-radius: 8px;
       padding: 4px 10px; font-size: 12.5px; }
     .xr-info:empty { display: none; }
+    .xr-qps { position: absolute; right: 0; top: calc(100% + 6px); background: rgba(0,0,0,.5); border-radius: 6px;
+      padding: 2px 8px; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+    .xr-qps:empty { display: none; }
     .xr-mira { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px;
       pointer-events: none; }
     .xr-mira::before, .xr-mira::after { content: ""; position: absolute; background: rgba(255,255,255,.85);
@@ -164,7 +167,7 @@
           <span class="cepe-rot">Como usar na obra</span></a></li>
       </ul></div>
     </nav>
-    <div class="cepe-lado-pe"><svg class="cepe-ico"><use href="#i-codigo"/></svg><span>Versão: <b>1.1</b></span></div>
+    <div class="cepe-lado-pe"><svg class="cepe-ico"><use href="#i-codigo"/></svg><span>Versão: <b>1.2</b></span></div>
   </aside>
   <div class="cepe-fundo-escuro"></div>
 
@@ -336,7 +339,7 @@
 
     <footer class="cepe-rodape"><div class="cepe-rodape-in">
       <div class="cepe-txt"><b>Centro de Estudos e Projetos de Engenharia da Aeronáutica</b>
-        <span>Seção BIM (DT-BIM) · CEPE · RA de Obra v1.1</span></div>
+        <span>Seção BIM (DT-BIM) · CEPE · RA de Obra v1.2</span></div>
     </div></footer>
   </div>
 </div>
@@ -372,7 +375,7 @@
 
 <!-- ======================= CAMADA SOBRE A CÂMERA ======================= -->
 <div id="xr-ui" hidden>
-  <div class="xr-topo xr-bloq"><div class="xr-msg" id="xr-msg">Iniciando…</div><div class="xr-info" id="xr-info"></div></div>
+  <div class="xr-topo xr-bloq"><div class="xr-msg" id="xr-msg">Iniciando…</div><div class="xr-info" id="xr-info"></div><div class="xr-qps" id="xr-qps"></div></div>
   <div class="xr-mira" id="xr-mira"></div>
   <div class="xr-painel xr-bloq" id="xr-p-ponto2" hidden>
     <h4>Tocar em outro QR para corrigir o giro</h4>
@@ -391,7 +394,8 @@
     <h4>Camadas</h4>
     <div class="xr-camadas" id="xr-camadas"></div>
     <label style="display:block;font-size:12.5px;margin-top:8px">Transparência
-      <input type="range" id="xr-opac" min="20" max="100" value="80" style="width:100%"></label>
+      <input type="range" id="xr-opac" min="20" max="100" value="100" style="width:100%"></label>
+    <p style="margin:6px 0 0;font-size:12px;color:#C9D6EA">Modelo opaco é o mais leve. Transparência e muitas camadas deixam o celular lento.</p>
   </div>
   <div class="xr-barra xr-bloq">
     <button type="button" data-painel="reposicionar">Reposicionar</button>
@@ -421,6 +425,7 @@ const angH = (x, z) => Math.atan2(x, z);           // ângulo horizontal no padr
 const NORTE = angH(0, -1);                          // eixo +Y do IFC aponta para -Z no three.js
 function hashId(s) { let h = 0x811c9dc5; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36).padStart(7, '0').slice(-7); }
 const espera = () => new Promise((r) => setTimeout(r, 30));
+const triangulos = (n) => (n < 10000 ? Math.round(n).toLocaleString('pt-BR') : fmt(n / 1000, 0) + ' mil') + ' triângulos';
 
 /* ===================== nomes das categorias ===================== */
 const ROTULOS = { IfcWall: 'Paredes', IfcWallStandardCase: 'Paredes', IfcSlab: 'Lajes', IfcColumn: 'Pilares', IfcBeam: 'Vigas',
@@ -1033,8 +1038,11 @@ async function carregarNoCampo(buf, nome, doCache) {
     let txt = esc(nome) + ' · ' + fmt(buf.byteLength / 1048576, 1) + ' MB · ' + campo.pontos.length + ' ponto(s)' +
       '<br>Tamanho: ' + fmt(dim.x, 1) + ' × ' + fmt(dim.z, 1) + ' m, altura ' + fmt(dim.y, 1) + ' m';
     const maior = Math.max(dim.x, dim.y, dim.z);
+    let tri = 0; r.grupo.children.forEach((m) => { if (m.visible && m.geometry) tri += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3; });
+    txt += ' · ' + triangulos(tri);
     if (doCache) txt += ' · guardado no aparelho';
     let estado = 'ok';
+    if (tri > 1500000) { estado = 'erro'; txt += '<br>Modelo pesado para celular. Oculte camadas no passo 2 e gere o pacote de novo, ou exporte só a disciplina que vai conferir.'; }
     if (maior < 1 || maior > 3000) { estado = 'erro'; txt += '<br>Atenção: tamanho fora do esperado. Confira a unidade do IFC exportado.'; }
     if (r.info.modeloId !== campo.mId && ext === 'glb' && r.info.coord) { estado = 'erro'; txt += '<br>Atenção: este pacote não é o do QR (código ' + esc(r.info.modeloId) + ', o QR pede ' + esc(campo.mId) + '). Confira o arquivo.'; }
     checa('#c-mod', estado, txt);
@@ -1068,7 +1076,8 @@ const xrInfo = (t) => { $('#xr-info').innerHTML = t || ''; };
 const vibrar = (ms = 40) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { /* segue */ } };
 
 function criarCenaRA() {
-  AR.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  AR.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
+  AR.renderer.xr.setFramebufferScaleFactor(0.8);
   AR.renderer.setPixelRatio(1);
   AR.renderer.setSize(innerWidth, innerHeight);
   AR.renderer.xr.enabled = true;
@@ -1127,7 +1136,7 @@ async function iniciarRA() {
       if (AR.ancorado && !AR.anchor) xrMsg('O celular reiniciou o rastreamento. Toque em <b>Reposicionar</b> e aponte de novo para o QR.');
     });
     AR.estado = 'ancorar'; AR.ancorado = false; AR.anchor = null; AR.anchorNovo = false; AR.A.identity();
-    AR.hist = []; AR.toque = false; AR.regua.visible = false;
+    AR.hist = []; AR.toque = false; AR.regua.visible = false; AR.miraVisivel = null; AR.t0 = 0; AR.quadros = 0; AR.erros = 0;
     fecharPaineis();
     xrMsg(`Fique a 1 ou 2 m da folha e mova o celular devagar, de um lado para o outro, apontando para ${campo.ponto.tipo === 'piso' ? 'o piso' : 'a parede'} do QR <b>${esc(campo.ponto.id)}</b>, até aparecer o círculo.`);
     xrInfo(s.domOverlayState ? '' : 'Sem camada de botões neste aparelho: toque para posicionar, volte para sair.');
@@ -1177,7 +1186,8 @@ function quadro(t, frame) {
       }
       // hit-test no centro da tela
       AR.hit = null;
-      if (AR.hitSource && vp) {
+      const mirando = AR.estado !== 'ok';
+      if (AR.hitSource && vp && mirando) {
         const hs = frame.getHitTestResults(AR.hitSource);
         const pose = hs.length ? hs[0].getPose(ref) : null;
         if (pose) {
@@ -1191,9 +1201,8 @@ function quadro(t, frame) {
           AR.ret.children[0].material.color.set(Math.abs(AR.hitM.elements[5]) < 0.5 ? 0xE08E0B : 0x4FA3FF);
         }
       }
-      const mirando = AR.estado !== 'ok';
       AR.ret.visible = !!AR.hit && mirando;
-      $('#xr-mira').style.display = mirando ? '' : 'none';
+      if (mirando !== AR.miraVisivel) { AR.miraVisivel = mirando; $('#xr-mira').style.display = mirando ? '' : 'none'; }
       if (mirando) {
         const alvo = AR.estado === 'ponto2' ? 'centro do QR ' + esc(AR.ponto2.id)
           : AR.estado === 'medir1' ? 'primeiro ponto da medida' : AR.estado === 'medir2' ? 'segundo ponto da medida' : 'centro do QR ' + esc(campo.ponto.id);
@@ -1213,10 +1222,21 @@ function quadro(t, frame) {
     }
     if (AR.modelo) { AR.modelo.matrix.multiplyMatrices(AR.A, AR.L); AR.modelo.matrixWorldNeedsUpdate = true; }
   } catch (e) {
-    console.error(e);
-    xrInfo('Falha momentânea: ' + esc(e.message || e));
+    AR.erros = (AR.erros || 0) + 1; AR.ultimoErro = e.message || String(e);
+    if (AR.erros === 1) console.error(e);
   }
   AR.renderer.render(AR.scene, AR.camera);
+  // painel de desempenho, atualizado 1 vez por segundo para não pesar
+  AR.quadros = (AR.quadros || 0) + 1;
+  const agora = performance.now();
+  if (!AR.t0) AR.t0 = agora;
+  if (agora - AR.t0 >= 1000) {
+    const qps = Math.round(AR.quadros * 1000 / (agora - AR.t0));
+    const tri = AR.renderer.info.render.triangles;
+    $('#xr-qps').textContent = `${qps} qps · ${triangulos(tri)}` + (AR.erros ? ` · ${AR.erros} falhas: ${AR.ultimoErro.slice(0, 60)}` : '');
+    $('#xr-qps').style.background = qps < 20 ? 'rgba(198,40,40,.85)' : 'rgba(0,0,0,.5)';
+    AR.quadros = 0; AR.t0 = agora; AR.erros = 0;
+  }
 }
 
 function aoTocar() { if (AR.estado !== 'ok') AR.toque = true; }
