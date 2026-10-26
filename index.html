@@ -164,7 +164,7 @@
           <span class="cepe-rot">Como usar na obra</span></a></li>
       </ul></div>
     </nav>
-    <div class="cepe-lado-pe"><svg class="cepe-ico"><use href="#i-codigo"/></svg><span>Versão: <b>1.0</b></span></div>
+    <div class="cepe-lado-pe"><svg class="cepe-ico"><use href="#i-codigo"/></svg><span>Versão: <b>1.1</b></span></div>
   </aside>
   <div class="cepe-fundo-escuro"></div>
 
@@ -336,7 +336,7 @@
 
     <footer class="cepe-rodape"><div class="cepe-rodape-in">
       <div class="cepe-txt"><b>Centro de Estudos e Projetos de Engenharia da Aeronáutica</b>
-        <span>Seção BIM (DT-BIM) · CEPE · RA de Obra v1.0</span></div>
+        <span>Seção BIM (DT-BIM) · CEPE · RA de Obra v1.1</span></div>
     </div></footer>
   </div>
 </div>
@@ -385,6 +385,7 @@
     <div class="xr-linha"><span>Frente</span><button data-acao="frente" data-v="1">↑ afastar</button><button data-acao="frente" data-v="-1">↓ aproximar</button></div>
     <div class="xr-linha"><span>Altura</span><button data-acao="altura" data-v="1">subir</button><button data-acao="altura" data-v="-1">descer</button></div>
     <div class="xr-linha"><span>Passo</span><button data-acao="passo" data-v="1" class="ativo">1 cm · 0,2°</button><button data-acao="passo" data-v="5">5 cm · 1°</button></div>
+    <div class="xr-linha"><span>Escala</span><button data-acao="medir" data-v="0">Medir uma distância com 2 toques</button></div>
   </div>
   <div class="xr-painel xr-bloq" id="xr-p-camadas" hidden>
     <h4>Camadas</h4>
@@ -1028,9 +1029,13 @@ async function carregarNoCampo(buf, nome, doCache) {
     else mapa.set(campo.ponto.id, campo.ponto);
     campo.pontos = [...mapa.values()].sort((a, b) => a.id.localeCompare(b.id, 'pt-BR', { numeric: true }));
     if (campo.ponto.onde) checa('#c-pt', '', esc(campo.ponto.onde) + (campo.ponto.tipo === 'piso' ? ' · folha deitada no piso.' : ' · folha na parede.'));
-    let txt = esc(nome) + ' · ' + fmt(buf.byteLength / 1048576, 1) + ' MB · ' + campo.pontos.length + ' ponto(s)';
+    const dim = new THREE.Box3().setFromObject(r.grupo).getSize(new THREE.Vector3());
+    let txt = esc(nome) + ' · ' + fmt(buf.byteLength / 1048576, 1) + ' MB · ' + campo.pontos.length + ' ponto(s)' +
+      '<br>Tamanho: ' + fmt(dim.x, 1) + ' × ' + fmt(dim.z, 1) + ' m, altura ' + fmt(dim.y, 1) + ' m';
+    const maior = Math.max(dim.x, dim.y, dim.z);
     if (doCache) txt += ' · guardado no aparelho';
     let estado = 'ok';
+    if (maior < 1 || maior > 3000) { estado = 'erro'; txt += '<br>Atenção: tamanho fora do esperado. Confira a unidade do IFC exportado.'; }
     if (r.info.modeloId !== campo.mId && ext === 'glb' && r.info.coord) { estado = 'erro'; txt += '<br>Atenção: este pacote não é o do QR (código ' + esc(r.info.modeloId) + ', o QR pede ' + esc(campo.mId) + '). Confira o arquivo.'; }
     checa('#c-mod', estado, txt);
     if (!doCache) await idbSet(campo.mId, { nome, buf, data: Date.now() });
@@ -1055,8 +1060,9 @@ $('#c-trocar').addEventListener('click', async (e) => {
 
 /* ---------------- sessão de RA ---------------- */
 const AR = { renderer: null, scene: null, camera: null, ret: null, session: null, hitSource: null,
-  hit: null, hitM: new THREE.Matrix4(), anchor: null, A: new THREE.Matrix4(), L: new THREE.Matrix4(),
-  estado: 'ancorar', ponto2: null, passo: 1, ancorado: false };
+  hit: null, hitM: new THREE.Matrix4(), anchor: null, anchorNovo: false, A: new THREE.Matrix4(), L: new THREE.Matrix4(),
+  estado: 'ancorar', estadoAntes: 'ancorar', ponto2: null, passo: 1, ancorado: false, toque: false,
+  hist: [], dist: 0, rastreio: 'ok', medida: null, regua: null };
 const xrMsg = (t) => { $('#xr-msg').innerHTML = t; };
 const xrInfo = (t) => { $('#xr-info').innerHTML = t || ''; };
 const vibrar = (ms = 40) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { /* segue */ } };
@@ -1080,6 +1086,11 @@ function criarCenaRA() {
   ret.children.forEach((m) => { m.renderOrder = 20; });
   ret.matrixAutoUpdate = false; ret.visible = false;
   AR.ret = ret; AR.scene.add(ret);
+  // régua da medição
+  const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  AR.regua = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x7FD08A, depthTest: false }));
+  AR.regua.renderOrder = 21; AR.regua.visible = false; AR.regua.frustumCulled = false;
+  AR.scene.add(AR.regua);
 }
 
 function frenteCamera() {
@@ -1111,9 +1122,14 @@ async function iniciarRA() {
     AR.hitSource = await s.requestHitTestSource({ space: viewer });
     s.addEventListener('select', aoTocar);
     s.addEventListener('end', fimRA);
-    AR.estado = 'ancorar'; AR.ancorado = false; AR.anchor = null; AR.A.identity();
+    const ref = AR.renderer.xr.getReferenceSpace();
+    if (ref && ref.addEventListener) ref.addEventListener('reset', () => {
+      if (AR.ancorado && !AR.anchor) xrMsg('O celular reiniciou o rastreamento. Toque em <b>Reposicionar</b> e aponte de novo para o QR.');
+    });
+    AR.estado = 'ancorar'; AR.ancorado = false; AR.anchor = null; AR.anchorNovo = false; AR.A.identity();
+    AR.hist = []; AR.toque = false; AR.regua.visible = false;
     fecharPaineis();
-    xrMsg(`Mova o celular devagar, apontando para ${campo.ponto.tipo === 'piso' ? 'o piso' : 'a parede'} do QR <b>${esc(campo.ponto.id)}</b>, até aparecer o círculo.`);
+    xrMsg(`Fique a 1 ou 2 m da folha e mova o celular devagar, de um lado para o outro, apontando para ${campo.ponto.tipo === 'piso' ? 'o piso' : 'a parede'} do QR <b>${esc(campo.ponto.id)}</b>, até aparecer o círculo.`);
     xrInfo(s.domOverlayState ? '' : 'Sem camada de botões neste aparelho: toque para posicionar, volte para sair.');
     AR.renderer.setAnimationLoop(quadro);
   } catch (e) {
@@ -1131,46 +1147,90 @@ function fimRA() {
   $('#xr-ui').hidden = true;
 }
 
-let ultimaMsgHit = null;
+// Média dos últimos toques do hit-test que concordam com o atual (tira a tremida da mão).
+function alvoEstavel() {
+  const agora = performance.now(), ult = AR.hist[AR.hist.length - 1];
+  if (!ult || agora - ult.t > 250) return null;
+  const recentes = AR.hist.filter((h) => agora - h.t < 600);
+  const bons = recentes.filter((h) => h.p.distanceTo(ult.p) < 0.02);
+  const P = new THREE.Vector3(), n = new THREE.Vector3();
+  bons.forEach((h) => { P.add(h.p); n.add(h.n); });
+  const firme = bons.length >= 5 && bons.length >= 0.6 * recentes.length;
+  return { P: P.divideScalar(bons.length), n: n.normalize(), amostras: bons.length, firme };
+}
+
+let ultimaMsg = '';
+function msgEstado(t) { if (t !== ultimaMsg) { ultimaMsg = t; xrMsg(t); } }
+
 function quadro(t, frame) {
-  const ref = AR.renderer.xr.getReferenceSpace();
-  if (frame && AR.hitSource) {
-    const hs = frame.getHitTestResults(AR.hitSource);
-    if (hs.length) {
-      const pose = hs[0].getPose(ref);
-      AR.hit = hs[0]; AR.hitM.fromArray(pose.transform.matrix);
-      AR.ret.matrix.copy(AR.hitM);
-      const ny = AR.hitM.elements[5];
-      AR.ret.children[0].material.color.set(Math.abs(ny) < 0.5 ? 0xE08E0B : 0x4FA3FF);
-    } else AR.hit = null;
-    AR.ret.visible = !!AR.hit && AR.estado !== 'ok';
-    $('#xr-mira').style.display = AR.estado !== 'ok' ? '' : 'none';
-    const tem = !!AR.hit;
-    if (AR.estado !== 'ok' && tem !== ultimaMsgHit) {
-      ultimaMsgHit = tem;
-      const alvo = AR.estado === 'ponto2' ? AR.ponto2.id : campo.ponto.id;
-      xrMsg(tem ? `Ponha o círculo no <b>centro do QR ${esc(alvo)}</b> e toque na tela.`
-        : 'Procurando a superfície… mova o celular devagar, de lado, apontando para a folha.');
+  try {
+    const ref = AR.renderer.xr.getReferenceSpace();
+    if (frame && ref) {
+      // rastreamento
+      const vp = frame.getViewerPose(ref);
+      const antes = AR.rastreio;
+      AR.rastreio = !vp ? 'perdido' : vp.emulatedPosition ? 'limitado' : 'ok';
+      if (AR.rastreio !== antes) {
+        if (AR.rastreio === 'perdido') xrInfo('<b>Rastreamento perdido.</b> Aponte para o que já foi filmado e mova devagar.');
+        else if (AR.rastreio === 'limitado') xrInfo('<b>Rastreamento fraco.</b> Mais luz e movimentos lentos ajudam.');
+        else xrInfo('');
+      }
+      // hit-test no centro da tela
+      AR.hit = null;
+      if (AR.hitSource && vp) {
+        const hs = frame.getHitTestResults(AR.hitSource);
+        const pose = hs.length ? hs[0].getPose(ref) : null;
+        if (pose) {
+          AR.hit = hs[0]; AR.hitM.fromArray(pose.transform.matrix);
+          const p = new THREE.Vector3().setFromMatrixPosition(AR.hitM);
+          AR.hist.push({ t: performance.now(), p, n: new THREE.Vector3().setFromMatrixColumn(AR.hitM, 1).normalize() });
+          if (AR.hist.length > 30) AR.hist.shift();
+          const cam = vp.transform.position;
+          AR.dist = p.distanceTo(new THREE.Vector3(cam.x, cam.y, cam.z));
+          AR.ret.matrix.copy(AR.hitM);
+          AR.ret.children[0].material.color.set(Math.abs(AR.hitM.elements[5]) < 0.5 ? 0xE08E0B : 0x4FA3FF);
+        }
+      }
+      const mirando = AR.estado !== 'ok';
+      AR.ret.visible = !!AR.hit && mirando;
+      $('#xr-mira').style.display = mirando ? '' : 'none';
+      if (mirando) {
+        const alvo = AR.estado === 'ponto2' ? 'centro do QR ' + esc(AR.ponto2.id)
+          : AR.estado === 'medir1' ? 'primeiro ponto da medida' : AR.estado === 'medir2' ? 'segundo ponto da medida' : 'centro do QR ' + esc(campo.ponto.id);
+        if (!AR.hit) msgEstado('Procurando a superfície… mova o celular devagar, de um lado para o outro, apontando para a folha.');
+        else msgEstado(`Ponha o círculo no <b>${alvo}</b>, segure firme e toque na tela. <span style="opacity:.8">Alvo a ${fmt(AR.dist, 1)} m${AR.dist > 2.5 ? ' (chegue mais perto)' : ''}.</span>`);
+      }
+      // toque pendente: tratado aqui, dentro do quadro, onde a âncora pode ser criada
+      if (AR.toque) { AR.toque = false; tratarToque(); }
+      // âncora: acompanha as correções do mapa do ARCore
+      if (AR.anchor && frame.trackedAnchors && frame.trackedAnchors.has(AR.anchor)) {
+        const ap = frame.getPose(AR.anchor.anchorSpace, ref);
+        if (ap) {
+          if (AR.anchorNovo) { const Wc = W(); AR.A.fromArray(ap.transform.matrix); definirW(Wc); AR.anchorNovo = false; }
+          else AR.A.fromArray(ap.transform.matrix);
+        }
+      }
     }
-    if (AR.anchor && frame.trackedAnchors && frame.trackedAnchors.has(AR.anchor)) {
-      const ap = frame.getPose(AR.anchor.anchorSpace, ref);
-      if (ap) AR.A.fromArray(ap.transform.matrix);
-    }
+    if (AR.modelo) { AR.modelo.matrix.multiplyMatrices(AR.A, AR.L); AR.modelo.matrixWorldNeedsUpdate = true; }
+  } catch (e) {
+    console.error(e);
+    xrInfo('Falha momentânea: ' + esc(e.message || e));
   }
-  if (AR.modelo) { AR.modelo.matrix.multiplyMatrices(AR.A, AR.L); AR.modelo.matrixWorldNeedsUpdate = true; }
   AR.renderer.render(AR.scene, AR.camera);
 }
 
-function aoTocar() {
-  if (AR.estado === 'ancorar') ancorar();
-  else if (AR.estado === 'ponto2') refinar();
+function aoTocar() { if (AR.estado !== 'ok') AR.toque = true; }
+
+function tratarToque() {
+  const a = alvoEstavel();
+  if (!AR.hit || !a) { xrMsg('Ainda não achei a superfície. Mova o celular devagar até aparecer o círculo.'); vibrar(120); return; }
+  if (!a.firme) { xrMsg('O círculo está tremendo. Segure o celular parado sobre o centro do QR e toque de novo.'); vibrar(120); return; }
+  if (AR.estado === 'ancorar') ancorar(a.P, a.n, AR.hit);
+  else if (AR.estado === 'ponto2') refinar(a.P);
+  else if (AR.estado === 'medir1' || AR.estado === 'medir2') medir(a.P);
 }
 
-async function ancorar() {
-  if (!AR.hit) { xrMsg('Ainda não achei a superfície. Mova o celular devagar até aparecer o círculo.'); vibrar(120); return; }
-  const hit = AR.hit, M = AR.hitM.clone();
-  const P = new THREE.Vector3().setFromMatrixPosition(M);
-  const n = new THREE.Vector3().setFromMatrixColumn(M, 1).normalize();
+function ancorar(P, n, hit) {
   const f = frenteCamera(), pt = campo.ponto;
   let ang;
   if (pt.tipo === 'parede') {
@@ -1183,19 +1243,21 @@ async function ancorar() {
   }
   const Wn = matrizModelo(P, ang - pt.a, vec(pt.p));
   if (AR.anchor && AR.anchor.delete) { try { AR.anchor.delete(); } catch (e) { /* segue */ } }
-  AR.anchor = null; AR.A.identity();
-  if (hit.createAnchor) { try { AR.anchor = await hit.createAnchor(); AR.A.copy(M); } catch (e) { AR.anchor = null; } }
+  AR.anchor = null; AR.anchorNovo = false; AR.A.identity();
   definirW(Wn);
-  AR.modelo.visible = true; AR.estado = 'ok'; AR.ancorado = true; ultimaMsgHit = null;
+  if (hit && hit.createAnchor) {
+    hit.createAnchor().then((anc) => {
+      AR.anchor = anc; AR.anchorNovo = true;
+      xrInfo('Âncora ativa: o modelo acompanha as correções do rastreamento.');
+    }).catch(() => xrInfo('Sem âncora neste aparelho: reposicione se o modelo escorregar.'));
+  }
+  AR.modelo.visible = true; AR.estado = 'ok'; AR.ancorado = true; ultimaMsg = '';
   vibrar(60);
-  xrMsg(`Modelo posicionado no <b>${esc(pt.id)}</b>. O quadrado dourado deve cair sobre a folha.` +
+  xrMsg(`Modelo posicionado no <b>${esc(pt.id)}</b> (alvo a ${fmt(AR.dist, 1)} m). O quadrado dourado deve cair sobre a folha.` +
     (pt.tipo === 'piso' ? ' O giro foi estimado pela sua direção: use <b>2º ponto</b> ou <b>Ajuste</b>.' : ' Para corrigir o giro, use <b>2º ponto</b> a 5 m ou mais.'));
-  xrInfo(AR.anchor ? 'Âncora ativa: o modelo acompanha as correções do rastreamento.' : 'Sem âncora neste aparelho: reposicione se o modelo escorregar.');
 }
 
-function refinar() {
-  if (!AR.hit) { xrMsg('Ainda não achei a superfície do QR ' + esc(AR.ponto2.id) + '. Mova o celular devagar.'); vibrar(120); return; }
-  const P2r = new THREE.Vector3().setFromMatrixPosition(AR.hitM);
+function refinar(P2r) {
   const p1m = vec(campo.ponto.p), p2m = vec(AR.ponto2.p);
   const P1r = p1m.clone().applyMatrix4(W());
   const vm = p2m.clone().sub(p1m), vr = P2r.clone().sub(P1r);
@@ -1206,11 +1268,26 @@ function refinar() {
   definirW(matrizModelo(P1r, theta, p1m));
   let dGiro = (theta - giroAntes) * 180 / Math.PI;
   dGiro = ((dGiro + 540) % 360) - 180;
-  AR.estado = 'ok'; ultimaMsgHit = null; vibrar(60);
+  AR.estado = 'ok'; ultimaMsg = ''; vibrar(60);
   const dif = Math.abs(dr - dm) * 100, dz = Math.abs((P2r.y - P1r.y) - (p2m.y - p1m.y)) * 100;
   xrMsg(`Giro corrigido com <b>${esc(campo.ponto.id)}–${esc(AR.ponto2.id)}</b> (mudou ${fmt(Math.abs(dGiro), 1)}°).`);
   xrInfo(`Distância medida ${fmt(dr, 2)} m · modelo ${fmt(dm, 2)} m · diferença ${fmt(dif, 0)} cm na horizontal e ${fmt(dz, 0)} cm na altura` +
     (dif > 5 || dz > 5 ? ' · <b>diferença alta: confira a colagem das folhas</b>' : ''));
+}
+
+// Régua: mede a distância real entre dois toques, para conferir a escala com uma trena.
+function iniciarMedida() {
+  AR.estadoAntes = AR.ancorado ? 'ok' : 'ancorar';
+  AR.estado = 'medir1'; AR.medida = null; AR.regua.visible = false; ultimaMsg = '';
+  fecharPaineis();
+}
+function medir(P) {
+  if (AR.estado === 'medir1') { AR.medida = P.clone(); AR.estado = 'medir2'; ultimaMsg = ''; vibrar(40); return; }
+  const d = P.distanceTo(AR.medida);
+  AR.regua.geometry.setFromPoints([AR.medida, P]); AR.regua.visible = true;
+  AR.estado = AR.estadoAntes; ultimaMsg = ''; vibrar(60);
+  xrMsg(`Medida: <b>${fmt(d, 2)} m</b>. Confira com a trena: se bater, a escala do celular está certa.`);
+  xrInfo('Diferença de poucos centímetros é normal. Erro grande indica rastreamento ruim: mova mais o celular antes de tocar.');
 }
 
 function ajustar(acao, v) {
@@ -1251,7 +1328,7 @@ document.querySelector('.xr-barra').addEventListener('click', (e) => {
   const p = b.dataset.painel;
   if (p === 'sair') { AR.session && AR.session.end(); return; }
   if (p === 'reposicionar') {
-    fecharPaineis(); AR.estado = 'ancorar'; ultimaMsgHit = null;
+    fecharPaineis(); AR.estado = 'ancorar'; AR.hist = []; ultimaMsg = '';
     xrMsg(`Ponha o círculo no <b>centro do QR ${esc(campo.ponto.id)}</b> e toque na tela.`); return;
   }
   const painel = document.getElementById(p), abrir = painel.hidden;
@@ -1270,11 +1347,12 @@ $('#xr-lista-p2').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-p2]'); if (!b) return;
   if (!AR.ancorado) { xrMsg('Posicione primeiro no QR ' + esc(campo.ponto.id) + '.'); fecharPaineis(); return; }
   AR.ponto2 = campo.pontos.find((q) => q.id === b.dataset.p2);
-  fecharPaineis(); AR.estado = 'ponto2'; ultimaMsgHit = null;
+  fecharPaineis(); AR.estado = 'ponto2'; AR.hist = []; ultimaMsg = '';
   xrMsg(`Vá até o QR <b>${esc(AR.ponto2.id)}</b>, ponha o círculo no centro dele e toque na tela.`);
 });
 $('#xr-p-ajuste').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-acao]'); if (!b) return;
+  if (b.dataset.acao === 'medir') { iniciarMedida(); return; }
   if (b.dataset.acao === 'passo') {
     AR.passo = +b.dataset.v;
     $('#xr-p-ajuste').querySelectorAll('[data-acao=passo]').forEach((k) => k.classList.toggle('ativo', k === b));
@@ -1284,7 +1362,7 @@ $('#xr-p-ajuste').addEventListener('click', (e) => {
 });
 
 /* para testes no computador */
-window.RA = { est, campo, AR, matrizModelo, definirRascunho, tresParaIfc, ifcParaTres, urlDoPonto, angH, NORTE, ancorar, refinar, W, definirW };
+window.RA = { est, campo, AR, matrizModelo, definirRascunho, tresParaIfc, ifcParaTres, urlDoPonto, angH, NORTE, W, definirW, criarCenaRA, quadro, aoTocar, THREE };
 
 if (qs.has('ra')) iniciarCampo();
 </script>
