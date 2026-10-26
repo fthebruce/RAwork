@@ -1,0 +1,1292 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RA de Obra – CEPE</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23122448'/%3E%3Cpath d='m12 4 7 4v8l-7 4-7-4V8z M5 8l7 4 7-4 M12 12v8' fill='none' stroke='%23E08E0B' stroke-width='1.8' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="cepe-tema.css">
+  <style>
+    /* ---------- visor 3D (computador) ---------- */
+    .visor { position: relative; height: 62vh; min-height: 360px; border: 1px solid var(--cepe-linha);
+      border-radius: 10px; overflow: hidden; background: #EEF2F7; }
+    .visor canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    .visor.marcando canvas { cursor: crosshair; }
+    .visor-dica { position: absolute; left: 12px; top: 10px; background: rgba(18,36,72,.86); color: #fff;
+      border-left: 4px solid var(--cepe-ouro); border-radius: 8px; padding: 6px 12px; font-size: 13px;
+      pointer-events: none; max-width: calc(100% - 24px); }
+    .visor-vazio { position: absolute; inset: 0; display: grid; place-items: center; color: var(--cepe-suave);
+      font-size: 14px; text-align: center; padding: 20px; }
+    .camadas { position: relative; }
+    .camadas > summary { list-style: none; }
+    .camadas > summary::-webkit-details-marker { display: none; }
+    .camadas-lista { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; min-width: 240px; max-height: 50vh;
+      overflow: auto; background: #fff; border: 1px solid var(--cepe-linha-2); border-top: 3px solid var(--cepe-ouro);
+      border-radius: 8px; box-shadow: 0 10px 26px rgba(18,36,72,.22); padding: 8px 12px; }
+    .camadas-lista label, .xr-camadas label { display: flex; align-items: center; gap: 8px; padding: 4px 0;
+      font-size: 13.5px; cursor: pointer; }
+    .camadas-lista label small { margin-left: auto; color: var(--cepe-suave); }
+    .coord-ifc { font-family: var(--cepe-mono); font-size: 12.5px; white-space: nowrap; }
+    .qr-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+    .qr-cartao { background: #fff; border: 1px solid var(--cepe-linha); border-radius: 10px; padding: 12px;
+      text-align: center; }
+    .qr-cartao svg { width: 120px; height: 120px; }
+    .qr-cartao b { display: block; color: var(--cepe-navy); font-size: 16px; }
+    .qr-cartao span { display: block; font-size: 12.5px; color: var(--cepe-suave); min-height: 2.9em; }
+    .passos-campo { margin: 0; padding-left: 20px; }
+    .passos-campo li { margin: 0 0 8px; }
+
+    /* ---------- tela de campo (celular, aberta pelo QR) ---------- */
+    #campo { display: none; padding: 14px; max-width: 720px; margin: 0 auto; }
+    body.modo-campo #campo { display: block; }
+    body.modo-campo .cepe-corpo, body.modo-campo .cepe-menu-btn { display: none !important; }
+    .campo-checa { list-style: none; margin: 0; padding: 0; }
+    .campo-checa li { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0;
+      border-bottom: 1px solid var(--cepe-linha); font-size: 14px; }
+    .campo-checa li:last-child { border-bottom: 0; }
+    .campo-checa .marca { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+      font-weight: 700; font-size: 13px; color: #fff; background: var(--cepe-linha-2); }
+    .campo-checa .ok .marca { background: var(--cepe-ok); }
+    .campo-checa .erro .marca { background: var(--cepe-erro); }
+    .campo-checa .espera .marca { background: var(--cepe-ouro); }
+    .btn-largo { width: 100%; justify-content: center; font-size: 17px !important; padding: 15px 18px !important; }
+
+    /* ---------- camada sobre a câmera (RA) ---------- */
+    #xr-ui { position: fixed; inset: 0; z-index: 5000; font-family: var(--cepe-fonte); color: #fff;
+      background: transparent; pointer-events: auto; }
+    #xr-ui[hidden] { display: none; }
+    .xr-topo { position: absolute; left: 10px; right: 10px; top: 10px; }
+    .xr-msg { background: rgba(18,36,72,.88); border-left: 5px solid var(--cepe-ouro); border-radius: 10px;
+      padding: 10px 14px; font-size: 15px; line-height: 1.4; }
+    .xr-info { margin-top: 6px; display: inline-block; background: rgba(0,0,0,.55); border-radius: 8px;
+      padding: 4px 10px; font-size: 12.5px; }
+    .xr-info:empty { display: none; }
+    .xr-mira { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px;
+      pointer-events: none; }
+    .xr-mira::before, .xr-mira::after { content: ""; position: absolute; background: rgba(255,255,255,.85);
+      box-shadow: 0 0 2px #000; }
+    .xr-mira::before { left: 14px; top: 0; width: 2px; height: 30px; }
+    .xr-mira::after { top: 14px; left: 0; height: 2px; width: 30px; }
+    .xr-barra { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 6px; padding: 10px;
+      background: linear-gradient(transparent, rgba(12,26,53,.8) 35%); }
+    .xr-barra button, .xr-painel button { flex: 1; font: inherit; font-size: 13px; font-weight: 700; color: #fff;
+      background: rgba(18,36,72,.92); border: 1px solid rgba(255,255,255,.35); border-radius: 10px;
+      padding: 11px 4px; min-height: 46px; }
+    .xr-barra button.ativo, .xr-painel button.ativo { background: var(--cepe-ouro); border-color: var(--cepe-ouro); }
+    .xr-barra button.sair { flex: .7; background: rgba(198,40,40,.9); }
+    .xr-painel { position: absolute; left: 10px; right: 10px; bottom: 76px; background: rgba(18,36,72,.94);
+      border-top: 3px solid var(--cepe-ouro); border-radius: 12px; padding: 10px 12px; }
+    .xr-painel[hidden] { display: none; }
+    .xr-painel h4 { margin: 2px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: #C9D6EA; }
+    .xr-linha { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+    .xr-linha > span { flex: 0 0 64px; font-size: 12.5px; color: #C9D6EA; }
+    .xr-camadas { max-height: 34vh; overflow: auto; }
+    .xr-camadas input[type=range] { width: 100%; }
+
+    /* ---------- folhas de QR (impressão) ---------- */
+    #folhas { display: none; }
+    @media print {
+      @page { size: A4; margin: 10mm; }
+      body.imprimindo { background: #fff !important; }
+      body.imprimindo > *:not(#folhas) { display: none !important; }
+      body.imprimindo #folhas { display: block; }
+    }
+    .folha { width: 190mm; height: 276mm; display: flex; flex-direction: column; align-items: center; overflow: hidden;
+      break-after: page; page-break-after: always; font-family: var(--cepe-fonte); color: #000; background: #fff; }
+    .folha:last-child { break-after: auto; page-break-after: auto; }
+    .folha-cab { width: 100%; display: flex; align-items: center; gap: 4mm; border-bottom: 1.2mm solid #122448;
+      padding-bottom: 3mm; }
+    .folha-cab img { height: 13mm; }
+    .folha-cab b { display: block; font-size: 12pt; color: #122448; }
+    .folha-cab span { font-size: 9.5pt; }
+    .folha-id { margin-left: auto; font-size: 30pt; font-weight: 700; color: #122448; border: 1mm solid #E08E0B;
+      border-radius: 3mm; padding: 0 5mm; line-height: 1.3; }
+    .folha h2 { font-size: 16pt; margin: 3mm 0 0; text-align: center; color: #000; }
+    .folha-seta { font-size: 12pt; font-weight: 700; margin: 1.5mm 0 0; text-align: center; }
+    .folha-alvo { position: relative; padding: 10mm; margin-top: 1mm; }
+    .folha-alvo svg { display: block; }
+    .folha-alvo i { position: absolute; border: 0 solid #000; }
+    .folha-alvo i.h { top: 50%; height: 0; border-top-width: .4mm; width: 8mm; margin-top: -.2mm; }
+    .folha-alvo i.v { left: 50%; width: 0; border-left-width: .4mm; height: 8mm; margin-left: -.2mm; }
+    .folha-alvo i.e { left: 1mm; } .folha-alvo i.d { right: 1mm; }
+    .folha-alvo i.c { top: 1mm; } .folha-alvo i.b { bottom: 1mm; }
+    .folha-dados { width: 100%; border-collapse: collapse; font-size: 10pt; margin-top: 1mm; }
+    .folha-dados th, .folha-dados td { border: .3mm solid #9AA7B8; padding: 1.2mm 2.5mm; text-align: left; vertical-align: top; }
+    .folha-dados th { width: 42mm; background: #E8EFF8; color: #122448; }
+    .folha ol { width: 100%; font-size: 10pt; margin: 2mm 0 0; padding-left: 6mm; }
+    .folha ol li { margin-bottom: 1mm; }
+    .folha-pe { margin-top: auto; width: 100%; font-size: 7.5pt; color: #555; word-break: break-all;
+      border-top: .3mm solid #9AA7B8; padding-top: 1.5mm; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/",
+      "web-ifc": "https://cdn.jsdelivr.net/npm/web-ifc@0.0.77/web-ifc-api.js",
+      "qrcode": "https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.mjs"
+    }
+  }
+  </script>
+</head>
+<body class="cepe">
+
+<!-- ======================= CABEÇALHO ======================= -->
+<header class="cepe-topo"><div class="cepe-topo-in">
+  <button class="cepe-menu-btn" type="button" data-cepe-alternar aria-label="Mostrar ou recolher o menu">
+    <svg class="cepe-ico"><use href="#i-menu"/></svg></button>
+  <div class="cepe-org cepe-esconde-sm">Centro de Estudos e Projetos de<br>Engenharia da Aeronáutica</div>
+  <div class="cepe-app"><h1>RA DE OBRA</h1><div class="cepe-sub">Modelo IFC em realidade aumentada, ancorado por QR code</div></div>
+  <div class="cepe-acoes"><ul class="cepe-topnav">
+    <li class="cepe-dica cepe-esconde-sm"><a href="#campo-uso"><svg class="cepe-ico"><use href="#i-info"/></svg>Como funciona</a>
+      <span class="cepe-balao" role="tooltip"><b>No computador:</b> carregue o IFC, marque pontos em paredes ou pilares
+        e imprima um QR para cada ponto. <b>Na obra:</b> cole as folhas nos pontos, leia o QR com o celular Android
+        e toque no centro do QR para posicionar o modelo.</span></li>
+  </ul></div>
+</div></header>
+
+<div class="cepe-corpo">
+  <!-- ======================= MENU LATERAL ======================= -->
+  <aside class="cepe-lado">
+    <div class="cepe-perfil"><span class="cepe-foto"><svg class="cepe-ico"><use href="#i-cubo"/></svg></span>
+      <div><span>Ferramenta</span><strong>RA de Obra</strong><span>Seção BIM · acesso livre</span></div></div>
+    <nav class="cepe-menu">
+      <div class="cepe-secao"><h3>Preparar (computador)</h3><ul class="cepe-nav">
+        <li><a href="#modelo"><svg class="cepe-ico"><use href="#i-cubo"/></svg><span class="cepe-n">1</span>
+          <span class="cepe-rot">Modelo IFC</span><span class="cepe-st pend" id="st-modelo">●</span></a></li>
+        <li><a href="#pontos"><svg class="cepe-ico"><use href="#i-link"/></svg><span class="cepe-n">2</span>
+          <span class="cepe-rot">Pontos de referência</span><span class="cepe-st pend" id="st-pontos">●</span></a></li>
+        <li><a href="#qr"><svg class="cepe-ico"><use href="#i-doc"/></svg><span class="cepe-n">3</span>
+          <span class="cepe-rot">QR e pacote</span></a></li>
+      </ul></div>
+      <div class="cepe-secao"><h3>Na obra (celular)</h3><ul class="cepe-nav">
+        <li><a href="#campo-uso"><svg class="cepe-ico"><use href="#i-info"/></svg><span class="cepe-n">4</span>
+          <span class="cepe-rot">Como usar na obra</span></a></li>
+      </ul></div>
+    </nav>
+    <div class="cepe-lado-pe"><svg class="cepe-ico"><use href="#i-codigo"/></svg><span>Versão: <b>1.0</b></span></div>
+  </aside>
+  <div class="cepe-fundo-escuro"></div>
+
+  <div class="cepe-principal">
+    <div class="cepe-conteudo"><main>
+
+      <!-- ======================= PASSO 1 ======================= -->
+      <section class="cepe-passo" id="modelo">
+        <header class="cepe-passo-cab">
+          <span class="cepe-passo-ic"><svg class="cepe-ico"><use href="#i-cubo"/></svg></span>
+          <div class="cepe-passo-txt"><span class="cepe-passo-num">Passo 1</span>
+            <h2>Modelo IFC</h2><p>Carregue o IFC da edificação ou um pacote .glb já preparado.</p></div>
+          <span class="cepe-sit alerta" id="sit-modelo">nenhum modelo</span>
+        </header>
+        <div class="cepe-passo-corpo">
+          <div class="cepe-bloco"><div class="cepe-bloco-tit"><span>Arquivo</span><span class="cepe-nota">.ifc ou .glb</span></div>
+            <div class="cepe-bloco-corpo">
+              <div class="cepe-aviso info">O arquivo é lido aqui mesmo, no navegador. Nada é enviado para servidor.</div>
+              <form class="cepe-envio" id="form-modelo">
+                <input type="file" id="arq-modelo" accept=".ifc,.glb">
+                <button class="cepe-btn prim" type="submit">Ler arquivo</button>
+              </form>
+            </div></div>
+          <div class="cepe-bloco" id="bloco-resumo" hidden><div class="cepe-bloco-tit"><span>Resumo</span>
+            <span class="cepe-nota" id="resumo-nome"></span></div>
+            <div class="cepe-bloco-corpo">
+              <div class="cepe-stats">
+                <div class="cepe-stat"><div class="k">Elementos</div><div class="v" id="r-el">0</div></div>
+                <div class="cepe-stat"><div class="k">Categorias</div><div class="v" id="r-tipos">0</div></div>
+                <div class="cepe-stat"><div class="k">Dimensões (m)</div><div class="v" id="r-dim" style="font-size:20px">–</div></div>
+                <div class="cepe-stat"><div class="k">Pontos</div><div class="v" id="r-pontos">0</div></div>
+              </div>
+              <p class="cepe-mini" id="r-obs" style="margin:0"></p>
+            </div></div>
+        </div>
+      </section>
+
+      <!-- ======================= PASSO 2 ======================= -->
+      <section class="cepe-passo" id="pontos">
+        <header class="cepe-passo-cab">
+          <span class="cepe-passo-ic"><svg class="cepe-ico"><use href="#i-link"/></svg></span>
+          <div class="cepe-passo-txt"><span class="cepe-passo-num">Passo 2</span>
+            <h2>Pontos de referência</h2><p>Clique numa face de parede ou pilar para marcar onde a folha com o QR será colada.</p></div>
+          <span class="cepe-sit alerta" id="sit-pontos">nenhum ponto</span>
+        </header>
+        <div class="cepe-passo-corpo">
+          <div class="cepe-bloco"><div class="cepe-bloco-tit"><span>Modelo 3D</span>
+            <span class="cepe-nota">arraste para girar · roda para aproximar · botão direito para mover</span></div>
+            <div class="cepe-bloco-corpo">
+              <div class="cepe-barra-ferr">
+                <details class="camadas" id="camadas-desk"><summary class="cepe-btn"><svg class="cepe-ico"><use href="#i-lista"/></svg>Camadas</summary>
+                  <div class="camadas-lista" id="camadas-lista"></div></details>
+                <button class="cepe-btn" type="button" id="btn-enquadrar"><svg class="cepe-ico"><use href="#i-busca"/></svg>Enquadrar</button>
+                <span class="cepe-dir"></span>
+                <button class="cepe-btn sucesso" type="button" id="btn-marcar"><svg class="cepe-ico"><use href="#i-mais"/></svg>Novo ponto</button>
+              </div>
+              <div class="visor" id="visor">
+                <div class="visor-vazio" id="visor-vazio">Carregue o modelo no passo 1.</div>
+                <div class="visor-dica" id="visor-dica" hidden></div>
+              </div>
+            </div></div>
+
+          <div class="cepe-bloco destaque" id="bloco-ponto" hidden><div class="cepe-bloco-tit"><span id="ponto-tit">Novo ponto</span>
+            <span class="cepe-nota" id="ponto-face"></span></div>
+            <div class="cepe-bloco-corpo">
+              <form class="cepe-grade" id="form-ponto">
+                <label class="cepe-campo c2">Código<input type="text" id="f-id" maxlength="6"></label>
+                <label class="cepe-campo c6">Identificação <span class="cepe-obs">ex.: Pilar P12 – face norte</span><input type="text" id="f-nome" maxlength="40"></label>
+                <label class="cepe-campo c4">Onde o QR fica<select id="f-tipo">
+                  <option value="parede">Parede ou pilar (QR na vertical)</option>
+                  <option value="piso">Piso (QR deitado)</option></select></label>
+                <label class="cepe-campo c4">X do projeto (m)<input type="number" step="0.001" id="f-x"></label>
+                <label class="cepe-campo c4">Y do projeto (m)<input type="number" step="0.001" id="f-y"></label>
+                <label class="cepe-campo c4">Z do projeto (m) <span class="cepe-obs">altura do centro do QR</span><input type="number" step="0.001" id="f-z"></label>
+                <label class="cepe-campo c12">Onde colar <span class="cepe-obs">texto que sai na folha impressa</span>
+                  <input type="text" id="f-onde" maxlength="90" placeholder="ex.: face norte do pilar P12, centro a 1,20 m do piso acabado"></label>
+                <div class="cepe-form-acoes">
+                  <span class="cepe-mini">Coordenadas no sistema do IFC. Ajuste para valores redondos se quiser facilitar a marcação na obra.</span>
+                  <button class="cepe-btn grande" type="button" id="btn-cancelar-ponto">Cancelar</button>
+                  <button class="cepe-btn prim grande" type="submit">Gravar ponto</button>
+                </div>
+              </form>
+            </div></div>
+
+          <div class="cepe-bloco"><div class="cepe-bloco-tit"><span>Pontos gravados</span><span class="cepe-nota" id="nota-pontos">0 pontos</span></div>
+            <div class="cepe-bloco-corpo">
+              <div class="cepe-aviso info" style="margin-bottom:12px">Prefira <b>parede ou pilar</b>, com o centro a uns 1,20 m do piso: um toque já
+                fixa posição e giro. Marque <b>pelo menos 2 pontos afastados</b> (5 m ou mais) em cada área, para corrigir o giro na obra.</div>
+              <div class="cepe-tabela-caixa"><table class="cepe-tabela">
+                <thead><tr><th>Código</th><th>Identificação</th><th>Tipo</th><th>X · Y · Z do projeto (m)</th><th></th></tr></thead>
+                <tbody id="tab-pontos"><tr><td colspan="5" class="cepe-mini">Nenhum ponto ainda.</td></tr></tbody>
+              </table></div>
+            </div></div>
+        </div>
+      </section>
+
+      <!-- ======================= PASSO 3 ======================= -->
+      <section class="cepe-passo" id="qr">
+        <header class="cepe-passo-cab">
+          <span class="cepe-passo-ic"><svg class="cepe-ico"><use href="#i-doc"/></svg></span>
+          <div class="cepe-passo-txt"><span class="cepe-passo-num">Passo 3</span>
+            <h2>QR e pacote</h2><p>Gere as folhas para imprimir e o arquivo leve do modelo para o celular.</p></div>
+        </header>
+        <div class="cepe-passo-corpo">
+          <div class="cepe-bloco"><div class="cepe-bloco-tit"><span>Configuração</span></div>
+            <div class="cepe-bloco-corpo">
+              <form class="cepe-grade" id="form-qr" onsubmit="return false">
+                <label class="cepe-campo c12">Endereço publicado deste aplicativo <span class="cepe-obs">é o link que vai dentro do QR (https)</span>
+                  <input type="text" id="url-app" placeholder="https://seu-usuario.github.io/ra-obra/"></label>
+                <label class="cepe-campo c6">Como o celular recebe o modelo<select id="modo-modelo">
+                  <option value="arquivo">Escolhe o arquivo .glb na primeira leitura (recomendado)</option>
+                  <option value="url">Baixa de um endereço na internet</option></select></label>
+                <label class="cepe-campo c6" id="campo-url-modelo" hidden>Endereço do pacote .glb
+                  <input type="text" id="url-modelo" placeholder="https://seu-usuario.github.io/ra-obra/modelos/obra_RA.glb"></label>
+                <label class="cepe-campo c3">Tamanho do QR<select id="tam-qr">
+                  <option value="100">10 cm</option><option value="120">12 cm</option><option value="150" selected>15 cm</option></select></label>
+                <div class="cepe-form-acoes">
+                  <span class="cepe-mini">Envie o pacote .glb para o celular (WhatsApp, e-mail ou cabo). Na primeira leitura de QR o celular pede o arquivo e guarda para as próximas. Só entram as camadas visíveis no passo 2.</span>
+                  <button class="cepe-btn sucesso grande" type="button" id="btn-glb"><svg class="cepe-ico"><use href="#i-baixar"/></svg>Baixar pacote .glb</button>
+                  <button class="cepe-btn prim grande" type="button" id="btn-imprimir"><svg class="cepe-ico"><use href="#i-doc"/></svg>Imprimir folhas de QR</button>
+                </div>
+              </form>
+            </div></div>
+          <div class="cepe-bloco"><div class="cepe-bloco-tit"><span>Prévia dos QR</span><span class="cepe-nota" id="nota-qr"></span></div>
+            <div class="cepe-bloco-corpo"><div class="qr-grade" id="qr-grade"><p class="cepe-mini">Grave pontos no passo 2.</p></div></div></div>
+        </div>
+      </section>
+
+      <!-- ======================= PASSO 4 ======================= -->
+      <section class="cepe-passo" id="campo-uso">
+        <header class="cepe-passo-cab">
+          <span class="cepe-passo-ic"><svg class="cepe-ico"><use href="#i-info"/></svg></span>
+          <div class="cepe-passo-txt"><span class="cepe-passo-num">Passo 4</span>
+            <h2>Como usar na obra</h2><p>Colagem das folhas, leitura do QR e cuidados para o modelo ficar alinhado.</p></div>
+        </header>
+        <div class="cepe-passo-corpo">
+          <div class="cepe-bloco"><div class="cepe-bloco-tit"><span>O que o celular precisa</span></div>
+            <div class="cepe-bloco-corpo">
+              <ul class="passos-campo">
+                <li>Android com <b>Google Play Services for AR</b> (ARCore) instalado. A lista de aparelhos compatíveis está em developers.google.com/ar/devices.</li>
+                <li><b>Google Chrome</b> atualizado. iPhone não funciona: o Safari não oferece realidade aumentada para páginas web.</li>
+                <li>O aplicativo publicado em endereço <b>https</b> (o passo a passo de publicação está no LEIA-ME).</li>
+              </ul>
+            </div></div>
+          <div class="cepe-bloco"><div class="cepe-bloco-tit"><span>Na obra</span></div>
+            <div class="cepe-bloco-corpo">
+              <ol class="passos-campo">
+                <li><b>Cole a folha</b> com o centro da cruz exatamente no ponto, com a seta para cima e a borda nivelada. Use trena e nível: 1° de giro na colagem vira uns 17 cm de erro a 10 m.</li>
+                <li><b>Leia o QR</b> com a câmera do celular e abra o link no Chrome. Na primeira vez, escolha o pacote .glb; depois ele fica guardado.</li>
+                <li>Toque em <b>Iniciar realidade aumentada</b> e mova o celular devagar, apontando para a parede, até aparecer o círculo.</li>
+                <li>Ponha o círculo <b>no centro do QR</b> e toque na tela. O quadrado dourado do modelo deve cair sobre a folha.</li>
+                <li>Afaste-se 5 m ou mais e use <b>2º ponto</b> tocando no centro de outro QR. Isso corrige o giro, que é a maior fonte de erro.</li>
+                <li>Se ainda sobrar diferença, use <b>Ajuste</b> (passos de 1 cm e 0,2°).</li>
+              </ol>
+            </div></div>
+          <div class="cepe-bloco"><div class="cepe-bloco-tit"><span>Precisão esperada</span></div>
+            <div class="cepe-bloco-corpo">
+              <ul class="passos-campo">
+                <li>Perto do QR: <b>1 a 3 cm</b>, se a folha foi bem colada.</li>
+                <li>O erro cresce conforme você anda. Ponha um QR por ambiente ou pavimento e reposicione ao chegar em cada um.</li>
+                <li>Paredes lisas e brancas e pouca luz atrapalham o rastreamento. A própria folha do QR ajuda o celular a reconhecer a parede.</li>
+                <li>Serve para conferência visual e conversa na obra. Não substitui locação topográfica.</li>
+              </ul>
+            </div></div>
+        </div>
+      </section>
+
+    </main></div>
+
+    <footer class="cepe-rodape"><div class="cepe-rodape-in">
+      <div class="cepe-txt"><b>Centro de Estudos e Projetos de Engenharia da Aeronáutica</b>
+        <span>Seção BIM (DT-BIM) · CEPE · RA de Obra v1.0</span></div>
+    </div></footer>
+  </div>
+</div>
+
+<!-- ======================= TELA DE CAMPO (aberta pelo QR) ======================= -->
+<div id="campo">
+  <section class="cepe-passo cepe-atual">
+    <header class="cepe-passo-cab">
+      <span class="cepe-passo-ic"><svg class="cepe-ico"><use href="#i-link"/></svg></span>
+      <div class="cepe-passo-txt"><span class="cepe-passo-num">Ponto de referência</span>
+        <h2 id="c-titulo">Ponto</h2><p id="c-nome"></p></div>
+    </header>
+    <div class="cepe-passo-corpo">
+      <div class="cepe-bloco"><div class="cepe-bloco-tit"><span>Antes de começar</span></div>
+        <div class="cepe-bloco-corpo">
+          <ul class="campo-checa">
+            <li class="espera" id="c-ra"><span class="marca">…</span><div><b>Realidade aumentada</b><br><span class="cepe-mini" id="c-ra-txt">verificando o aparelho…</span></div></li>
+            <li class="espera" id="c-mod"><span class="marca">…</span><div><b>Modelo</b><br><span class="cepe-mini" id="c-mod-txt">procurando…</span></div></li>
+            <li id="c-pt"><span class="marca">i</span><div><b>Onde está o QR</b><br><span class="cepe-mini" id="c-pt-txt"></span></div></li>
+          </ul>
+          <form class="cepe-envio" id="c-form" hidden style="margin-top:12px">
+            <input type="file" id="c-arq" accept=".glb,.ifc">
+            <button class="cepe-btn prim" type="submit">Abrir modelo</button>
+          </form>
+        </div></div>
+      <button class="cepe-btn prim grande btn-largo" type="button" id="btn-iniciar" disabled>
+        <svg class="cepe-ico"><use href="#i-cubo"/></svg>Iniciar realidade aumentada</button>
+      <p class="cepe-mini" style="margin:12px 2px 0">Na câmera: mova o celular devagar até aparecer o círculo, ponha o círculo no
+        centro do QR e toque na tela. <a href="#" id="c-trocar">Trocar o modelo guardado</a></p>
+    </div>
+  </section>
+</div>
+
+<!-- ======================= CAMADA SOBRE A CÂMERA ======================= -->
+<div id="xr-ui" hidden>
+  <div class="xr-topo xr-bloq"><div class="xr-msg" id="xr-msg">Iniciando…</div><div class="xr-info" id="xr-info"></div></div>
+  <div class="xr-mira" id="xr-mira"></div>
+  <div class="xr-painel xr-bloq" id="xr-p-ponto2" hidden>
+    <h4>Tocar em outro QR para corrigir o giro</h4>
+    <div class="xr-linha" id="xr-lista-p2" style="flex-wrap:wrap"></div>
+  </div>
+  <div class="xr-painel xr-bloq" id="xr-p-ajuste" hidden>
+    <h4>Ajuste fino · em relação a você</h4>
+    <div class="xr-linha"><span>Giro</span><button data-acao="giro" data-v="1">⟲ girar</button><button data-acao="giro" data-v="-1">girar ⟳</button></div>
+    <div class="xr-linha"><span>Lados</span><button data-acao="lado" data-v="-1">← esquerda</button><button data-acao="lado" data-v="1">direita →</button></div>
+    <div class="xr-linha"><span>Frente</span><button data-acao="frente" data-v="1">↑ afastar</button><button data-acao="frente" data-v="-1">↓ aproximar</button></div>
+    <div class="xr-linha"><span>Altura</span><button data-acao="altura" data-v="1">subir</button><button data-acao="altura" data-v="-1">descer</button></div>
+    <div class="xr-linha"><span>Passo</span><button data-acao="passo" data-v="1" class="ativo">1 cm · 0,2°</button><button data-acao="passo" data-v="5">5 cm · 1°</button></div>
+  </div>
+  <div class="xr-painel xr-bloq" id="xr-p-camadas" hidden>
+    <h4>Camadas</h4>
+    <div class="xr-camadas" id="xr-camadas"></div>
+    <label style="display:block;font-size:12.5px;margin-top:8px">Transparência
+      <input type="range" id="xr-opac" min="20" max="100" value="80" style="width:100%"></label>
+  </div>
+  <div class="xr-barra xr-bloq">
+    <button type="button" data-painel="reposicionar">Reposicionar</button>
+    <button type="button" data-painel="xr-p-ponto2">2º ponto</button>
+    <button type="button" data-painel="xr-p-ajuste">Ajuste</button>
+    <button type="button" data-painel="xr-p-camadas">Camadas</button>
+    <button type="button" class="sair" data-painel="sair">Sair</button>
+  </div>
+</div>
+
+<div id="folhas"></div>
+
+<script src="cepe-tema.js"></script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import qrcode from 'qrcode';
+
+const WASM_URL = 'https://cdn.jsdelivr.net/npm/web-ifc@0.0.77/';
+const $ = (s) => document.querySelector(s);
+const aviso = (m, t) => (window.CEPE && CEPE.toast ? CEPE.toast(m, t) : console.log(m));
+const fmt = (n, d = 3) => Number(n).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
+const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const angH = (x, z) => Math.atan2(x, z);           // ângulo horizontal no padrão do three.js (giro em Y)
+const NORTE = angH(0, -1);                          // eixo +Y do IFC aponta para -Z no three.js
+function hashId(s) { let h = 0x811c9dc5; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36).padStart(7, '0').slice(-7); }
+const espera = () => new Promise((r) => setTimeout(r, 30));
+
+/* ===================== nomes das categorias ===================== */
+const ROTULOS = { IfcWall: 'Paredes', IfcWallStandardCase: 'Paredes', IfcSlab: 'Lajes', IfcColumn: 'Pilares', IfcBeam: 'Vigas',
+  IfcDoor: 'Portas', IfcWindow: 'Janelas', IfcRoof: 'Cobertura', IfcStair: 'Escadas', IfcStairFlight: 'Escadas',
+  IfcRailing: 'Guarda-corpos', IfcCovering: 'Revestimentos e forros', IfcPlate: 'Placas', IfcMember: 'Perfis',
+  IfcFooting: 'Fundações', IfcPile: 'Fundações', IfcPipeSegment: 'Tubos', IfcPipeFitting: 'Conexões', IfcFlowSegment: 'Tubos',
+  IfcFlowFitting: 'Conexões', IfcFlowTerminal: 'Terminais', IfcSanitaryTerminal: 'Louças', IfcValve: 'Registros',
+  IfcFlowController: 'Registros', IfcDuctSegment: 'Dutos', IfcDuctFitting: 'Dutos', IfcCableCarrierSegment: 'Eletrocalhas',
+  IfcCableCarrierFitting: 'Eletrocalhas', IfcCableSegment: 'Cabos', IfcLightFixture: 'Luminárias', IfcFireSuppressionTerminal: 'Incêndio',
+  IfcFurnishingElement: 'Mobiliário', IfcFurniture: 'Mobiliário', IfcBuildingElementProxy: 'Outros', IfcSpace: 'Ambientes',
+  IfcOpeningElement: 'Aberturas', IfcSite: 'Terreno' };
+const rotulo = (t) => ROTULOS[t] || String(t).replace(/^Ifc/i, '');
+const OCULTAS_INICIO = new Set(['Ambientes', 'Aberturas']);
+
+/* ===================== leitura do IFC (web-ifc) ===================== */
+let ifcApi = null;
+async function abrirWebIfc() {
+  if (ifcApi) return ifcApi;
+  const W = await import('web-ifc');
+  ifcApi = new W.IfcAPI();
+  ifcApi.SetWasmPath(WASM_URL, true);
+  await ifcApi.Init(undefined, true);
+  return ifcApi;
+}
+
+function material(r, g, b, a) {
+  const m = new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace),
+    side: THREE.DoubleSide, transparent: a < 0.99, opacity: a, depthWrite: a >= 0.99 });
+  m.userData.opacBase = a;
+  return m;
+}
+
+async function ifcParaGrupo(buf, nome, prog) {
+  prog?.(8, 'Carregando o leitor de IFC…');
+  const api = await abrirWebIfc();
+  prog?.(20, 'Abrindo o IFC…'); await espera();
+  const mid = api.OpenModel(new Uint8Array(buf), { COORDINATE_TO_ORIGIN: true, CIRCLE_SEGMENTS: 12 });
+  prog?.(35, 'Gerando a geometria…'); await espera();
+  const baldes = new Map(); let nEl = 0;
+  const p = new THREE.Vector3(), n = new THREE.Vector3(), M = new THREE.Matrix4(), N = new THREE.Matrix3();
+  api.StreamAllMeshes(mid, (mesh) => {
+    nEl++;
+    let tipo = 'Ifc';
+    try { tipo = api.GetNameFromTypeCode(api.GetLineType(mid, mesh.expressID)); } catch (e) { /* segue */ }
+    const gs = mesh.geometries;
+    for (let i = 0; i < gs.size(); i++) {
+      const pg = gs.get(i);
+      const geo = api.GetGeometry(mid, pg.geometryExpressID);
+      const v = api.GetVertexArray(geo.GetVertexData(), geo.GetVertexDataSize());
+      const idx = api.GetIndexArray(geo.GetIndexData(), geo.GetIndexDataSize());
+      const c = pg.color, rot = rotulo(tipo);
+      const chave = rot + '|' + [c.x, c.y, c.z, c.w].map((k) => k.toFixed(3)).join(',');
+      let b = baldes.get(chave);
+      if (!b) { b = { tipo: rot, ifc: tipo, cor: [c.x, c.y, c.z, c.w], pos: [], nor: [], ind: [], n: 0 }; baldes.set(chave, b); }
+      M.fromArray(pg.flatTransformation); N.getNormalMatrix(M);
+      for (let k = 0; k < v.length; k += 6) {
+        p.set(v[k], v[k + 1], v[k + 2]).applyMatrix4(M);
+        n.set(v[k + 3], v[k + 4], v[k + 5]).applyMatrix3(N).normalize();
+        b.pos.push(p.x, p.y, p.z); b.nor.push(n.x, n.y, n.z);
+      }
+      for (let k = 0; k < idx.length; k++) b.ind.push(idx[k] + b.n);
+      b.n += v.length / 6;
+      if (geo.delete) geo.delete();
+    }
+  });
+  const coord = Array.from(api.GetCoordinationMatrix(mid));
+  api.CloseModel(mid);
+  prog?.(85, 'Montando o modelo…'); await espera();
+  const grupo = new THREE.Group(); grupo.name = 'modelo';
+  for (const b of baldes.values()) {
+    if (!b.n) continue;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3));
+    g.setIndex(b.n > 65535 ? new THREE.Uint32BufferAttribute(b.ind, 1) : new THREE.Uint16BufferAttribute(b.ind, 1));
+    const m = new THREE.Mesh(g, material(...b.cor));
+    m.name = b.tipo; m.userData.tipo = b.tipo;
+    grupo.add(m);
+  }
+  const info = { versao: 1, modeloId: hashId(nome + '|' + buf.byteLength), nome, coord, elementos: nEl, pontos: [] };
+  return { grupo, info };
+}
+
+/* ===================== leitura do pacote .glb ===================== */
+async function glbParaGrupo(buf) {
+  const g = await new GLTFLoader().parseAsync(buf, '');
+  g.scene.updateMatrixWorld(true);
+  let info = null; const malhas = [];
+  g.scene.traverse((o) => { if (o.userData && o.userData.raObra && !info) info = o.userData.raObra; if (o.isMesh) malhas.push(o); });
+  const grupo = new THREE.Group(); grupo.name = 'modelo';
+  for (const o of malhas) {
+    const geo = o.geometry.clone().applyMatrix4(o.matrixWorld);
+    const mo = o.material, a = mo.transparent ? mo.opacity : 1;
+    const m = new THREE.MeshLambertMaterial({ color: mo.color.clone(), side: THREE.DoubleSide, transparent: a < 0.99, opacity: a, depthWrite: a >= 0.99 });
+    m.userData.opacBase = a;
+    const nm = new THREE.Mesh(geo, m);
+    nm.userData.tipo = o.userData.tipo || o.name || 'Outros'; nm.name = nm.userData.tipo;
+    grupo.add(nm);
+  }
+  if (!info) info = { versao: 1, modeloId: hashId('glb|' + buf.byteLength), nome: 'modelo.glb', coord: null, elementos: 0, pontos: [] };
+  return { grupo, info };
+}
+
+async function lerModelo(arquivo, prog) {
+  const buf = await arquivo.arrayBuffer();
+  const ext = arquivo.name.toLowerCase().split('.').pop();
+  if (ext === 'ifc') return { ...(await ifcParaGrupo(buf, arquivo.name, prog)), buf, ext };
+  if (ext === 'glb') { prog?.(40, 'Lendo o pacote…'); return { ...(await glbParaGrupo(buf)), buf, ext }; }
+  throw new Error('Use um arquivo .ifc ou .glb.');
+}
+
+function tiposDo(grupo) {
+  const t = new Map();
+  grupo.children.forEach((m) => t.set(m.userData.tipo, (t.get(m.userData.tipo) || 0) + 1));
+  return [...t.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+}
+function aplicarVisibilidadeInicial(grupo) {
+  grupo.children.forEach((m) => { m.visible = !OCULTAS_INICIO.has(m.userData.tipo); });
+}
+function montarCamadas(caixa, grupo) {
+  caixa.innerHTML = '';
+  for (const t of tiposDo(grupo)) {
+    const lab = document.createElement('label');
+    const vis = grupo.children.some((m) => m.userData.tipo === t && m.visible);
+    lab.innerHTML = `<input type="checkbox" ${vis ? 'checked' : ''}> ${esc(t)}`;
+    lab.querySelector('input').addEventListener('change', (e) => {
+      grupo.children.forEach((m) => { if (m.userData.tipo === t) m.visible = e.target.checked; });
+    });
+    caixa.appendChild(lab);
+  }
+}
+
+/* ===================== matemática do alinhamento ===================== */
+// Matriz que leva o ponto pm do modelo para P no mundo, girando o modelo theta em torno do eixo vertical.
+function matrizModelo(P, theta, pm) {
+  return new THREE.Matrix4().makeTranslation(P.x, P.y, P.z)
+    .multiply(new THREE.Matrix4().makeRotationY(theta))
+    .multiply(new THREE.Matrix4().makeTranslation(-pm.x, -pm.y, -pm.z));
+}
+const vec = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+
+/* ===================== marcadores dos pontos ===================== */
+function etiqueta(texto, cor, fixo) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 96;
+  const x = c.getContext('2d');
+  x.fillStyle = cor; x.beginPath(); x.roundRect(6, 6, 244, 84, 18); x.fill();
+  x.fillStyle = '#fff'; x.font = 'bold 56px Calibri, Arial'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(texto, 128, 50);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, sizeAttenuation: !fixo }));
+  if (fixo) s.scale.set(0.075, 0.028, 1); else s.scale.set(0.42, 0.16, 1);
+  s.renderOrder = 10;
+  return s;
+}
+function marcador(pt, cor = '#E08E0B', lado = 0.2, fixo = false) {
+  const g = new THREE.Group();
+  const p = vec(pt.p);
+  const n = pt.tipo === 'piso' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(Math.sin(pt.a), 0, Math.cos(pt.a));
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(lado, lado),
+    new THREE.MeshBasicMaterial({ color: cor, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthTest: false }));
+  const borda = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(lado, lado)),
+    new THREE.LineBasicMaterial({ color: cor, depthTest: false }));
+  const cruz = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-lado * .7, 0, 0), new THREE.Vector3(lado * .7, 0, 0), new THREE.Vector3(0, -lado * .7, 0), new THREE.Vector3(0, lado * .7, 0)]),
+    new THREE.LineBasicMaterial({ color: '#122448', depthTest: false }));
+  const face = new THREE.Group(); face.add(quad, borda, cruz);
+  face.position.copy(p).addScaledVector(n, 0.004);
+  if (pt.tipo === 'piso') { face.lookAt(p.clone().add(n)); face.rotateZ(-pt.a + Math.PI); }
+  else face.lookAt(p.clone().add(n));
+  quad.renderOrder = borda.renderOrder = cruz.renderOrder = 9;
+  const et = etiqueta(pt.id, cor, fixo); et.position.copy(p).addScaledVector(n, 0.05).add(new THREE.Vector3(0, lado * 0.5 + (fixo ? 0.05 : 0.12), 0));
+  g.add(face, et); g.userData.id = pt.id;
+  return g;
+}
+
+/* =====================================================================
+   COMPUTADOR: passos 1 a 3
+   ===================================================================== */
+const est = { grupo: null, info: null, pontos: [], rascunho: null, editando: null, buf: null, ext: null };
+const V = { renderer: null, scene: null, camera: null, controls: null, marcas: new THREE.Group(), rasc: null, marcando: false };
+
+function iniciarVisor() {
+  if (V.renderer) return;
+  const caixa = $('#visor');
+  V.renderer = new THREE.WebGLRenderer({ antialias: true });
+  V.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  caixa.prepend(V.renderer.domElement);
+  V.scene = new THREE.Scene(); V.scene.background = new THREE.Color(0xEEF2F7);
+  V.camera = new THREE.PerspectiveCamera(45, 1, 0.05, 2000);
+  V.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a96a8, 2.2));
+  const dl = new THREE.DirectionalLight(0xffffff, 1.4); dl.position.set(1, 2, 1.5); V.scene.add(dl);
+  V.scene.add(V.marcas);
+  V.controls = new OrbitControls(V.camera, V.renderer.domElement);
+  V.controls.enableDamping = true;
+  new ResizeObserver(() => {
+    const w = caixa.clientWidth, h = caixa.clientHeight;
+    if (!w || !h) return;
+    V.renderer.setSize(w, h, false); V.camera.aspect = w / h; V.camera.updateProjectionMatrix();
+  }).observe(caixa);
+  V.renderer.setAnimationLoop(() => {
+    if (!caixa.offsetParent) return;
+    V.controls.update(); V.renderer.render(V.scene, V.camera);
+  });
+  // clique sem arrastar = marcar ponto
+  let ini = null;
+  V.renderer.domElement.addEventListener('pointerdown', (e) => { ini = { x: e.clientX, y: e.clientY }; });
+  V.renderer.domElement.addEventListener('pointerup', (e) => {
+    if (!ini || !V.marcando || e.button !== 0) return;
+    if (Math.hypot(e.clientX - ini.x, e.clientY - ini.y) > 5) return;
+    escolherFace(e);
+  });
+}
+
+function enquadrar() {
+  if (!est.grupo) return;
+  const box = new THREE.Box3();
+  est.grupo.children.forEach((m) => { if (m.visible) box.expandByObject(m); });
+  if (box.isEmpty()) box.setFromObject(est.grupo);
+  const c = box.getCenter(new THREE.Vector3()), r = box.getSize(new THREE.Vector3()).length() / 2 || 5;
+  V.controls.target.copy(c);
+  V.camera.position.copy(c).add(new THREE.Vector3(1, 0.8, 1.2).normalize().multiplyScalar(r * 2.2));
+  V.camera.near = Math.max(r / 500, 0.01); V.camera.far = r * 50; V.camera.updateProjectionMatrix();
+}
+
+function escolherFace(e) {
+  const r = V.renderer.domElement.getBoundingClientRect();
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), V.camera);
+  const hit = ray.intersectObjects(est.grupo.children.filter((m) => m.visible), false)[0];
+  if (!hit) { aviso('Nenhuma face nesse ponto. Clique sobre o modelo.', 'erro'); return; }
+  const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+  if (n.dot(ray.ray.direction) > 0) n.negate();
+  definirRascunho(hit.point, n);
+}
+
+function definirRascunho(p, n) {
+  let tipo = 'parede';
+  if (n.y > 0.7) tipo = 'piso';
+  else if (Math.abs(n.y) > 0.3) { aviso('Face inclinada ou teto: escolha uma parede, pilar ou piso.', 'erro'); return; }
+  const a = tipo === 'piso' ? NORTE : angH(n.x, n.z);
+  est.rascunho = { p: [p.x, p.y, p.z], a, tipo, nAng: tipo === 'parede' ? a : null };
+  if (!est.editando) {
+    let k = 1; const usados = new Set(est.pontos.map((q) => q.id));
+    while (usados.has('P' + k)) k++;
+    $('#f-id').value = 'P' + k; $('#f-nome').value = ''; $('#f-onde').value = '';
+  }
+  $('#f-tipo').value = tipo;
+  preencherCoords(); mostrarRascunho();
+  $('#bloco-ponto').hidden = false;
+  $('#ponto-tit').textContent = est.editando ? 'Editar ponto ' + est.editando : 'Novo ponto';
+  $('#ponto-face').textContent = tipo === 'piso' ? 'face horizontal (piso)' : 'face vertical (parede ou pilar)';
+  marcar(false);
+  $('#bloco-ponto').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function coordMatriz() { return est.info && est.info.coord ? new THREE.Matrix4().fromArray(est.info.coord) : new THREE.Matrix4(); }
+function tresParaIfc(p) { const o = vec(p).applyMatrix4(coordMatriz().invert()); return { X: o.x, Y: -o.z, Z: o.y }; }
+function ifcParaTres(X, Y, Z) { const o = new THREE.Vector3(X, Z, -Y).applyMatrix4(coordMatriz()); return [o.x, o.y, o.z]; }
+function preencherCoords() {
+  const c = tresParaIfc(est.rascunho.p);
+  $('#f-x').value = c.X.toFixed(3); $('#f-y').value = c.Y.toFixed(3); $('#f-z').value = c.Z.toFixed(3);
+}
+['#f-x', '#f-y', '#f-z'].forEach((s) => $(s).addEventListener('change', () => {
+  if (!est.rascunho) return;
+  est.rascunho.p = ifcParaTres(+$('#f-x').value, +$('#f-y').value, +$('#f-z').value); mostrarRascunho();
+}));
+$('#f-tipo').addEventListener('change', () => {
+  if (!est.rascunho) return;
+  est.rascunho.tipo = $('#f-tipo').value;
+  est.rascunho.a = est.rascunho.tipo === 'piso' ? NORTE : (est.rascunho.nAng ?? NORTE);
+  if (est.rascunho.tipo === 'parede' && est.rascunho.nAng == null) aviso('Esse ponto foi marcado no piso. Clique numa parede para ter a direção certa.', 'erro');
+  mostrarRascunho();
+});
+
+function mostrarRascunho() {
+  if (V.rasc) V.scene.remove(V.rasc);
+  V.rasc = est.rascunho ? marcador({ ...est.rascunho, id: $('#f-id').value || '?' }, '#1E63D6', 0.25, true) : null;
+  if (V.rasc) V.scene.add(V.rasc);
+}
+function desenharMarcas() {
+  V.marcas.clear();
+  est.pontos.forEach((pt) => { if (pt.id !== est.editando) V.marcas.add(marcador(pt, '#E08E0B', 0.25, true)); });
+}
+
+function marcar(on) {
+  V.marcando = on;
+  $('#visor').classList.toggle('marcando', on);
+  const d = $('#visor-dica');
+  d.hidden = !on; d.textContent = 'Clique na face da parede, pilar ou piso onde o QR será colado.';
+  const b = $('#btn-marcar');
+  b.className = 'cepe-btn ' + (on ? '' : 'sucesso');
+  b.innerHTML = on ? 'Cancelar marcação' : '<svg class="cepe-ico"><use href="#i-mais"/></svg>Novo ponto';
+}
+$('#btn-marcar').addEventListener('click', () => {
+  if (!est.grupo) { aviso('Carregue o modelo no passo 1.', 'erro'); return; }
+  if (!V.marcando) { est.editando = null; cancelarPonto(true); }
+  marcar(!V.marcando);
+});
+$('#btn-enquadrar').addEventListener('click', enquadrar);
+
+function cancelarPonto(silencioso) {
+  est.rascunho = null; est.editando = null; mostrarRascunho(); desenharMarcas();
+  $('#bloco-ponto').hidden = true;
+}
+$('#btn-cancelar-ponto').addEventListener('click', () => cancelarPonto());
+
+$('#form-ponto').addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (!est.rascunho) return;
+  const id = ($('#f-id').value || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+  if (!id) { aviso('Informe o código do ponto.', 'erro'); return; }
+  if (est.pontos.some((q) => q.id === id && q.id !== est.editando)) { aviso('Já existe um ponto ' + id + '.', 'erro'); return; }
+  const pt = { id, nome: $('#f-nome').value.trim() || id, onde: $('#f-onde').value.trim(), tipo: est.rascunho.tipo,
+    p: est.rascunho.p.map((k) => +k.toFixed(4)), a: +est.rascunho.a.toFixed(5), nAng: est.rascunho.nAng };
+  if (est.editando) est.pontos = est.pontos.map((q) => (q.id === est.editando ? pt : q));
+  else est.pontos.push(pt);
+  est.pontos.sort((a, b) => a.id.localeCompare(b.id, 'pt-BR', { numeric: true }));
+  cancelarPonto(); atualizarPontos();
+  aviso('Ponto ' + id + ' gravado.');
+});
+
+function atualizarPontos() {
+  const tb = $('#tab-pontos');
+  if (!est.pontos.length) tb.innerHTML = '<tr><td colspan="5" class="cepe-mini">Nenhum ponto ainda.</td></tr>';
+  else tb.innerHTML = est.pontos.map((pt) => {
+    const c = tresParaIfc(pt.p);
+    return `<tr><td class="cod"><b>${esc(pt.id)}</b></td><td>${esc(pt.nome)}${pt.onde ? `<br><span class="cepe-mini">${esc(pt.onde)}</span>` : ''}</td>
+      <td>${pt.tipo === 'piso' ? '<span class="cepe-tag alerta">piso</span>' : '<span class="cepe-tag ok">parede</span>'}</td>
+      <td class="coord-ifc">${fmt(c.X)} · ${fmt(c.Y)} · ${fmt(c.Z)}</td>
+      <td style="white-space:nowrap"><button class="cepe-btn peq" data-ver="${esc(pt.id)}">ver</button>
+        <button class="cepe-btn peq" data-editar="${esc(pt.id)}">editar</button>
+        <button class="cepe-btn peq perigo" data-excluir="${esc(pt.id)}">excluir</button></td></tr>`;
+  }).join('');
+  const n = est.pontos.length;
+  $('#nota-pontos').textContent = n + (n === 1 ? ' ponto' : ' pontos');
+  $('#r-pontos').textContent = n;
+  const sit = $('#sit-pontos');
+  sit.className = 'cepe-sit ' + (n >= 2 ? 'ok' : 'alerta');
+  sit.textContent = n === 0 ? 'nenhum ponto' : n === 1 ? '1 ponto · marque mais um' : '✓ ' + n + ' pontos';
+  const st = $('#st-pontos'); st.className = 'cepe-st ' + (n ? 'ok' : 'pend'); st.textContent = n ? '✓' : '●';
+  desenharMarcas(); atualizarQR();
+}
+$('#tab-pontos').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const id = b.dataset.ver || b.dataset.editar || b.dataset.excluir;
+  const pt = est.pontos.find((q) => q.id === id); if (!pt) return;
+  if (b.dataset.ver) {
+    const p = vec(pt.p), n = pt.tipo === 'piso' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(Math.sin(pt.a), 0, Math.cos(pt.a));
+    V.controls.target.copy(p);
+    V.camera.position.copy(p).addScaledVector(n, 3).add(new THREE.Vector3(0, pt.tipo === 'piso' ? 0 : 1, 0));
+    $('#visor').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else if (b.dataset.editar) {
+    est.editando = pt.id; est.rascunho = { p: [...pt.p], a: pt.a, tipo: pt.tipo, nAng: pt.nAng ?? (pt.tipo === 'parede' ? pt.a : null) };
+    $('#f-id').value = pt.id; $('#f-nome').value = pt.nome; $('#f-onde').value = pt.onde || ''; $('#f-tipo').value = pt.tipo;
+    preencherCoords(); mostrarRascunho(); desenharMarcas();
+    $('#bloco-ponto').hidden = false; $('#ponto-tit').textContent = 'Editar ponto ' + pt.id;
+    $('#ponto-face').textContent = 'altere os campos e grave';
+    $('#bloco-ponto').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } else if (b.dataset.excluir) {
+    CEPE.janela({ titulo: 'Excluir o ponto ' + pt.id + '?', icone: 'lixo', texto: 'Se a folha desse ponto já foi impressa, ela deixa de valer.',
+      botoes: [{ rotulo: 'Cancelar', valor: false }, { rotulo: 'Excluir', valor: true, classe: 'perigo' }], esc: false })
+      .then((ok) => { if (ok) { est.pontos = est.pontos.filter((q) => q.id !== pt.id); atualizarPontos(); } });
+  }
+});
+
+/* ---------- passo 1: carregar ---------- */
+$('#form-modelo').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const arq = $('#arq-modelo').files[0];
+  if (!arq) { aviso('Escolha um arquivo .ifc ou .glb.', 'erro'); return; }
+  const c = CEPE.carregando('Lendo o modelo', arq.name + ' · ' + fmt(arq.size / 1048576, 1) + ' MB');
+  try {
+    const r = await lerModelo(arq, (p, t) => c.progresso(p, t));
+    iniciarVisor();
+    if (est.grupo) V.scene.remove(est.grupo);
+    est.grupo = r.grupo; est.info = r.info; est.buf = r.buf; est.ext = r.ext;
+    est.pontos = (r.info.pontos || []).slice();
+    aplicarVisibilidadeInicial(est.grupo);
+    V.scene.add(est.grupo);
+    montarCamadas($('#camadas-lista'), est.grupo);
+    $('#visor-vazio').hidden = true;
+    const box = new THREE.Box3().setFromObject(est.grupo), s = box.getSize(new THREE.Vector3());
+    $('#bloco-resumo').hidden = false;
+    $('#resumo-nome').textContent = r.info.nome + ' · código ' + r.info.modeloId;
+    $('#r-el').textContent = (r.info.elementos || est.grupo.children.length).toLocaleString('pt-BR');
+    $('#r-tipos').textContent = tiposDo(est.grupo).length;
+    $('#r-dim').textContent = `${fmt(s.x, 1)} × ${fmt(s.z, 1)} × ${fmt(s.y, 1)}`;
+    $('#r-obs').textContent = r.ext === 'glb'
+      ? 'Pacote .glb aberto com ' + est.pontos.length + ' ponto(s). Você pode editar os pontos e gerar o pacote de novo.'
+      : 'Coordenadas trazidas para perto da origem para o celular trabalhar com precisão. Os valores do projeto continuam aparecendo nos pontos.';
+    const sit = $('#sit-modelo'); sit.className = 'cepe-sit ok'; sit.textContent = '✓ modelo carregado';
+    const st = $('#st-modelo'); st.className = 'cepe-st ok'; st.textContent = '✓';
+    enquadrar(); atualizarPontos();
+    c.concluir();
+    setTimeout(() => { c.fechar(); aviso('Modelo carregado. Agora marque os pontos.'); CEPE.irPara('pontos'); }, 500);
+  } catch (err) {
+    console.error(err);
+    c.erro('Não foi possível ler o arquivo: ' + (err.message || err));
+  }
+});
+
+/* ---------- passo 3: QR, folhas e pacote ---------- */
+try {
+  const salvo = localStorage.getItem('ra-obra-url-app');
+  $('#url-app').value = salvo || (/^https?:/.test(location.protocol) ? location.origin + location.pathname : '');
+  $('#url-modelo').value = localStorage.getItem('ra-obra-url-modelo') || '';
+  $('#modo-modelo').value = localStorage.getItem('ra-obra-modo') || 'arquivo';
+} catch (e) { /* sem armazenamento */ }
+function modoModelo() { $('#campo-url-modelo').hidden = $('#modo-modelo').value !== 'url'; }
+modoModelo();
+['#url-app', '#url-modelo', '#modo-modelo'].forEach((s) => $(s).addEventListener('change', () => {
+  try {
+    localStorage.setItem('ra-obra-url-app', $('#url-app').value.trim());
+    localStorage.setItem('ra-obra-url-modelo', $('#url-modelo').value.trim());
+    localStorage.setItem('ra-obra-modo', $('#modo-modelo').value);
+  } catch (e) { /* segue */ }
+  modoModelo(); atualizarQR();
+}));
+
+function urlDoPonto(pt, base) {
+  const u = new URL(base);
+  const q = u.searchParams;
+  q.set('ra', '1'); q.set('m', est.info.modeloId); q.set('p', pt.id);
+  q.set('x', pt.p[0].toFixed(3)); q.set('y', pt.p[1].toFixed(3)); q.set('z', pt.p[2].toFixed(3));
+  q.set('a', pt.a.toFixed(4)); q.set('t', pt.tipo === 'piso' ? 'f' : 'w'); q.set('n', pt.nome.slice(0, 40));
+  if ($('#modo-modelo').value === 'url' && $('#url-modelo').value.trim()) q.set('u', $('#url-modelo').value.trim());
+  return u.toString();
+}
+function baseValida(silencioso) {
+  const b = $('#url-app').value.trim();
+  if (!/^https:\/\/.+/i.test(b)) { if (!silencioso) aviso('Informe o endereço publicado do aplicativo, começando com https://', 'erro'); return null; }
+  try { new URL(b); return b; } catch (e) { if (!silencioso) aviso('Endereço do aplicativo inválido.', 'erro'); return null; }
+}
+function qrSvg(texto, mm) {
+  const qr = qrcode(0, 'M'); qr.addData(texto); qr.make();
+  const n = qr.getModuleCount(); let d = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`;
+  const t = mm ? `width="${mm}mm" height="${mm}mm"` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 ${n + 8} ${n + 8}" ${t} shape-rendering="crispEdges"><rect x="-4" y="-4" width="${n + 8}" height="${n + 8}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+function atualizarQR() {
+  const g = $('#qr-grade');
+  if (!est.pontos.length) { g.innerHTML = '<p class="cepe-mini">Grave pontos no passo 2.</p>'; $('#nota-qr').textContent = ''; return; }
+  const base = baseValida(true);
+  if (!base) { g.innerHTML = '<div class="cepe-aviso alerta" style="grid-column:1/-1">Informe acima o endereço publicado (https) para gerar os QR.</div>'; return; }
+  g.innerHTML = est.pontos.map((pt) => {
+    const u = urlDoPonto(pt, base);
+    return `<div class="qr-cartao">${qrSvg(u)}<b>${esc(pt.id)}</b><span>${esc(pt.nome)}</span><a class="cepe-mini" href="${esc(u)}" target="_blank" rel="noopener">abrir link</a></div>`;
+  }).join('');
+  $('#nota-qr').textContent = est.pontos.length + ' folha(s)';
+}
+
+$('#btn-imprimir').addEventListener('click', () => {
+  if (!est.pontos.length) { aviso('Grave pelo menos um ponto no passo 2.', 'erro'); return; }
+  const base = baseValida(); if (!base) return;
+  const mm = +$('#tam-qr').value, hoje = new Date().toLocaleDateString('pt-BR');
+  $('#folhas').innerHTML = est.pontos.map((pt) => {
+    const u = urlDoPonto(pt, base), c = tresParaIfc(pt.p);
+    const seta = pt.tipo === 'piso'
+      ? '▲ Deite a folha com esta seta apontando para o eixo +Y (Norte) do projeto'
+      : '▲ PARA CIMA · borda superior nivelada';
+    const tipo = pt.tipo === 'piso' ? 'Piso · folha deitada' : 'Parede ou pilar · folha na vertical';
+    return `<div class="folha">
+      <div class="folha-cab"><div><b>CEPE · Seção BIM (DT-BIM)</b><span>RA de Obra · ponto de referência para realidade aumentada</span></div>
+        <div class="folha-id">${esc(pt.id)}</div></div>
+      <h2>${esc(pt.nome)}</h2>
+      <div class="folha-seta">${seta}</div>
+      <div class="folha-alvo">${qrSvg(u, mm)}<i class="h e"></i><i class="h d"></i><i class="v c"></i><i class="v b"></i></div>
+      <table class="folha-dados">
+        <tr><th>Onde colar</th><td>${esc(pt.onde || 'Centro da cruz sobre o ponto marcado no projeto.')}</td></tr>
+        <tr><th>Posição da folha</th><td>${tipo}</td></tr>
+        <tr><th>Coordenadas do projeto</th><td>X ${fmt(c.X)} m · Y ${fmt(c.Y)} m · Z ${fmt(c.Z)} m (centro da cruz)</td></tr>
+        <tr><th>Modelo</th><td>${esc(est.info.nome)} · código ${esc(est.info.modeloId)}</td></tr>
+      </table>
+      <ol>
+        <li>Cole com o <b>centro da cruz</b> (encontro das quatro marcas) exatamente sobre o ponto. Confira com trena${pt.tipo === 'piso' ? '' : ' e nível'}.</li>
+        <li>Leia o QR com a câmera de um celular Android e abra no Google Chrome.</li>
+        <li>Toque em <b>Iniciar realidade aumentada</b>, ponha o círculo no centro do QR e toque na tela.</li>
+      </ol>
+      <div class="folha-pe">Gerado em ${hoje} · QR de ${mm / 10} cm (o tamanho não altera a precisão) · ${esc(u)}</div>
+    </div>`;
+  }).join('');
+  document.body.classList.add('imprimindo');
+  setTimeout(() => window.print(), 300);
+});
+window.addEventListener('afterprint', () => document.body.classList.remove('imprimindo'));
+
+$('#btn-glb').addEventListener('click', async () => {
+  if (!est.grupo) { aviso('Carregue o modelo no passo 1.', 'erro'); return; }
+  if (!est.pontos.length) { aviso('Grave pelo menos um ponto antes de gerar o pacote.', 'erro'); return; }
+  const c = CEPE.carregando('Gerando o pacote', est.info.nome);
+  try {
+    c.progresso(30, 'Compactando a geometria…'); await espera();
+    const exp = est.grupo.clone(false);
+    est.grupo.children.forEach((m) => { if (m.visible) exp.add(m.clone()); });
+    if (!exp.children.length) throw new Error('todas as camadas estão ocultas no passo 2.');
+    exp.userData = { raObra: { ...est.info, pontos: est.pontos } };
+    const bin = await new GLTFExporter().parseAsync(exp, { binary: true });
+    const nome = est.info.nome.replace(/\.(ifc|glb)$/i, '').replace(/_RA$/i, '') + '_RA.glb';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([bin], { type: 'model/gltf-binary' })); a.download = nome;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    c.concluir('Pronto: ' + fmt(bin.byteLength / 1048576, 1) + ' MB');
+    setTimeout(() => { c.fechar(); aviso('Pacote ' + nome + ' gerado. Envie para o celular.'); }, 700);
+  } catch (err) { console.error(err); c.erro('Falha ao gerar o pacote: ' + (err.message || err)); }
+});
+
+/* =====================================================================
+   CELULAR: tela de campo e realidade aumentada
+   ===================================================================== */
+const qs = new URLSearchParams(location.search);
+const campo = { grupo: null, info: null, ponto: null, pontos: [], mId: null };
+
+function idb() {
+  return new Promise((ok, err) => {
+    const r = indexedDB.open('ra-obra', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('modelos');
+    r.onsuccess = () => ok(r.result); r.onerror = () => err(r.error);
+  });
+}
+async function idbGet(k) {
+  try { const db = await idb(); return await new Promise((ok, err) => { const q = db.transaction('modelos').objectStore('modelos').get(k); q.onsuccess = () => ok(q.result); q.onerror = () => err(q.error); }); }
+  catch (e) { return null; }
+}
+async function idbSet(k, v) {
+  try { const db = await idb(); await new Promise((ok, err) => { const t = db.transaction('modelos', 'readwrite'); t.objectStore('modelos').put(v, k); t.oncomplete = ok; t.onerror = () => err(t.error); }); }
+  catch (e) { /* sem cache */ }
+}
+async function idbDel(k) {
+  try { const db = await idb(); await new Promise((ok) => { const t = db.transaction('modelos', 'readwrite'); t.objectStore('modelos').delete(k); t.oncomplete = ok; t.onerror = ok; }); }
+  catch (e) { /* segue */ }
+}
+
+function checa(id, estado, texto) {
+  const li = $(id); li.className = estado;
+  li.querySelector('.marca').textContent = estado === 'ok' ? '✓' : estado === 'erro' ? '!' : estado === 'espera' ? '…' : 'i';
+  li.querySelector('.cepe-mini').innerHTML = texto;
+}
+let raSuportada = false;
+function liberarInicio() { $('#btn-iniciar').disabled = !(raSuportada && campo.grupo); }
+
+async function iniciarCampo() {
+  document.body.classList.add('modo-campo');
+  const num = (k) => { const v = parseFloat(qs.get(k)); return Number.isFinite(v) ? v : 0; };
+  campo.mId = qs.get('m') || 'sem-codigo';
+  campo.ponto = { id: (qs.get('p') || 'P1').toUpperCase(), nome: qs.get('n') || '', tipo: qs.get('t') === 'f' ? 'piso' : 'parede',
+    p: [num('x'), num('y'), num('z')], a: qs.has('a') ? num('a') : NORTE, onde: '' };
+  $('#c-titulo').textContent = 'Ponto ' + campo.ponto.id;
+  $('#c-nome').textContent = campo.ponto.nome || 'Leia este QR na obra e aponte a câmera para ele.';
+  checa('#c-pt', '', campo.ponto.tipo === 'piso'
+    ? 'Folha <b>deitada no piso</b>. Fique atrás da folha olhando na direção da seta antes de tocar.'
+    : 'Folha <b>na parede ou pilar</b>. Um toque no centro do QR fixa posição e giro.');
+  // pontos já lidos neste aparelho (para o 2º ponto quando o modelo veio em .ifc)
+  try {
+    const lidos = JSON.parse(localStorage.getItem('ra-pontos-' + campo.mId) || '[]').filter((q) => q.id !== campo.ponto.id);
+    lidos.push(campo.ponto); localStorage.setItem('ra-pontos-' + campo.mId, JSON.stringify(lidos));
+  } catch (e) { /* segue */ }
+
+  // suporte a RA
+  try { raSuportada = !!(navigator.xr && await navigator.xr.isSessionSupported('immersive-ar')); } catch (e) { raSuportada = false; }
+  if (raSuportada) checa('#c-ra', 'ok', 'Aparelho e navegador compatíveis.');
+  else if (!window.isSecureContext) checa('#c-ra', 'erro', 'A página precisa ser aberta em endereço <b>https</b>.');
+  else checa('#c-ra', 'erro', /iPhone|iPad/i.test(navigator.userAgent)
+    ? 'iPhone e iPad não oferecem realidade aumentada para páginas web. Use um Android.'
+    : 'Sem suporte. Use o <b>Chrome no Android</b> com o <b>Google Play Services for AR</b> instalado e atualizado.');
+
+  // modelo: guardado no aparelho → endereço do QR → escolher arquivo
+  const guardado = await idbGet(campo.mId);
+  if (guardado && guardado.buf) { await carregarNoCampo(guardado.buf, guardado.nome, true); }
+  else if (qs.get('u')) { await baixarModelo(qs.get('u')); }
+  else { checa('#c-mod', 'espera', 'Escolha o pacote <b>.glb</b> recebido (ou o .ifc). Ele fica guardado para os próximos QR.'); $('#c-form').hidden = false; }
+  liberarInicio();
+}
+
+async function baixarModelo(url) {
+  try {
+    checa('#c-mod', 'espera', 'Baixando o modelo…');
+    const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status);
+    const total = +r.headers.get('content-length') || 0, leitor = r.body.getReader(), partes = []; let rec = 0;
+    for (;;) {
+      const { done, value } = await leitor.read(); if (done) break;
+      partes.push(value); rec += value.length;
+      checa('#c-mod', 'espera', 'Baixando o modelo… ' + (total ? Math.round(rec / total * 100) + '%' : fmt(rec / 1048576, 1) + ' MB'));
+    }
+    const buf = await new Blob(partes).arrayBuffer();
+    await carregarNoCampo(buf, decodeURIComponent(url.split('/').pop().split('?')[0]) || 'modelo.glb', false);
+  } catch (e) {
+    checa('#c-mod', 'erro', 'Não consegui baixar o modelo (' + esc(e.message) + '). Escolha o arquivo manualmente.');
+    $('#c-form').hidden = false;
+  }
+}
+
+async function carregarNoCampo(buf, nome, doCache) {
+  try {
+    checa('#c-mod', 'espera', 'Abrindo ' + esc(nome) + '…');
+    const ext = nome.toLowerCase().endsWith('.ifc') ? 'ifc' : 'glb';
+    const r = ext === 'ifc' ? await ifcParaGrupo(buf, nome) : await glbParaGrupo(buf);
+    campo.grupo = r.grupo; campo.info = r.info;
+    aplicarVisibilidadeInicial(campo.grupo);
+    // lista de pontos: os do pacote + os já lidos neste aparelho
+    const mapa = new Map();
+    (r.info.pontos || []).forEach((q) => mapa.set(q.id, q));
+    try { JSON.parse(localStorage.getItem('ra-pontos-' + campo.mId) || '[]').forEach((q) => { if (!mapa.has(q.id)) mapa.set(q.id, q); }); } catch (e) { /* segue */ }
+    if (mapa.has(campo.ponto.id)) campo.ponto = mapa.get(campo.ponto.id);
+    else mapa.set(campo.ponto.id, campo.ponto);
+    campo.pontos = [...mapa.values()].sort((a, b) => a.id.localeCompare(b.id, 'pt-BR', { numeric: true }));
+    if (campo.ponto.onde) checa('#c-pt', '', esc(campo.ponto.onde) + (campo.ponto.tipo === 'piso' ? ' · folha deitada no piso.' : ' · folha na parede.'));
+    let txt = esc(nome) + ' · ' + fmt(buf.byteLength / 1048576, 1) + ' MB · ' + campo.pontos.length + ' ponto(s)';
+    if (doCache) txt += ' · guardado no aparelho';
+    let estado = 'ok';
+    if (r.info.modeloId !== campo.mId && ext === 'glb' && r.info.coord) { estado = 'erro'; txt += '<br>Atenção: este pacote não é o do QR (código ' + esc(r.info.modeloId) + ', o QR pede ' + esc(campo.mId) + '). Confira o arquivo.'; }
+    checa('#c-mod', estado, txt);
+    if (!doCache) await idbSet(campo.mId, { nome, buf, data: Date.now() });
+    $('#c-form').hidden = true;
+  } catch (e) {
+    console.error(e);
+    checa('#c-mod', 'erro', 'Não foi possível abrir o arquivo: ' + esc(e.message || e));
+    $('#c-form').hidden = false;
+  }
+  liberarInicio();
+}
+$('#c-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = $('#c-arq').files[0]; if (!f) { aviso('Escolha o arquivo do modelo.', 'erro'); return; }
+  await carregarNoCampo(await f.arrayBuffer(), f.name, false);
+});
+$('#c-trocar').addEventListener('click', async (e) => {
+  e.preventDefault(); await idbDel(campo.mId);
+  campo.grupo = null; liberarInicio();
+  checa('#c-mod', 'espera', 'Escolha o novo arquivo do modelo.'); $('#c-form').hidden = false;
+});
+
+/* ---------------- sessão de RA ---------------- */
+const AR = { renderer: null, scene: null, camera: null, ret: null, session: null, hitSource: null,
+  hit: null, hitM: new THREE.Matrix4(), anchor: null, A: new THREE.Matrix4(), L: new THREE.Matrix4(),
+  estado: 'ancorar', ponto2: null, passo: 1, ancorado: false };
+const xrMsg = (t) => { $('#xr-msg').innerHTML = t; };
+const xrInfo = (t) => { $('#xr-info').innerHTML = t || ''; };
+const vibrar = (ms = 40) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { /* segue */ } };
+
+function criarCenaRA() {
+  AR.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  AR.renderer.setPixelRatio(1);
+  AR.renderer.setSize(innerWidth, innerHeight);
+  AR.renderer.xr.enabled = true;
+  AR.renderer.xr.setReferenceSpaceType('local');
+  AR.renderer.domElement.style.display = 'none';
+  document.body.appendChild(AR.renderer.domElement);
+  AR.scene = new THREE.Scene();
+  AR.camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.02, 500);
+  AR.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a96a8, 2.4));
+  const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(1, 2, 1); AR.scene.add(dl);
+  // retículo: anel no plano da superfície (o eixo Y da pose do hit-test é a normal)
+  const ret = new THREE.Group();
+  ret.add(new THREE.Mesh(new THREE.RingGeometry(0.05, 0.065, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xE08E0B, depthTest: false })));
+  ret.add(new THREE.Mesh(new THREE.CircleGeometry(0.006, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false })));
+  ret.children.forEach((m) => { m.renderOrder = 20; });
+  ret.matrixAutoUpdate = false; ret.visible = false;
+  AR.ret = ret; AR.scene.add(ret);
+}
+
+function frenteCamera() {
+  const e = AR.renderer.xr.getCamera().matrixWorld.elements;
+  const f = new THREE.Vector3(-e[8], 0, -e[10]);
+  if (f.lengthSq() < 1e-6) f.set(0, 0, -1);
+  return f.normalize();
+}
+function W() { return AR.A.clone().multiply(AR.L); }
+function definirW(Wn) { AR.L.copy(AR.A).invert().multiply(Wn); }
+
+async function iniciarRA() {
+  if (!campo.grupo) return;
+  if (!AR.renderer) criarCenaRA();
+  const modelo = AR.modelo = campo.grupo;
+  modelo.matrixAutoUpdate = false; modelo.visible = false;
+  modelo.children.filter((o) => o.userData.marca).forEach((o) => modelo.remove(o));
+  campo.pontos.forEach((pt) => { const mk = marcador(pt, pt.id === campo.ponto.id ? '#E08E0B' : '#1E63D6', 0.15); mk.userData.marca = true; modelo.add(mk); });
+  AR.scene.add(modelo);
+  montarCamadas($('#xr-camadas'), { children: modelo.children.filter((m) => !m.userData.marca) });
+  aplicarOpacidade();
+  const ui = $('#xr-ui'); ui.hidden = false;
+  try {
+    const s = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'],
+      optionalFeatures: ['dom-overlay', 'anchors'], domOverlay: { root: ui } });
+    AR.session = s;
+    await AR.renderer.xr.setSession(s);
+    const viewer = await s.requestReferenceSpace('viewer');
+    AR.hitSource = await s.requestHitTestSource({ space: viewer });
+    s.addEventListener('select', aoTocar);
+    s.addEventListener('end', fimRA);
+    AR.estado = 'ancorar'; AR.ancorado = false; AR.anchor = null; AR.A.identity();
+    fecharPaineis();
+    xrMsg(`Mova o celular devagar, apontando para ${campo.ponto.tipo === 'piso' ? 'o piso' : 'a parede'} do QR <b>${esc(campo.ponto.id)}</b>, até aparecer o círculo.`);
+    xrInfo(s.domOverlayState ? '' : 'Sem camada de botões neste aparelho: toque para posicionar, volte para sair.');
+    AR.renderer.setAnimationLoop(quadro);
+  } catch (e) {
+    console.error(e); ui.hidden = true;
+    aviso('Não foi possível iniciar a câmera em RA: ' + (e.message || e), 'erro');
+  }
+}
+$('#btn-iniciar').addEventListener('click', iniciarRA);
+
+function fimRA() {
+  AR.renderer.setAnimationLoop(null);
+  if (AR.hitSource) { try { AR.hitSource.cancel(); } catch (e) { /* segue */ } }
+  if (AR.anchor && AR.anchor.delete) { try { AR.anchor.delete(); } catch (e) { /* segue */ } }
+  AR.hitSource = null; AR.session = null; AR.anchor = null; AR.hit = null;
+  $('#xr-ui').hidden = true;
+}
+
+let ultimaMsgHit = null;
+function quadro(t, frame) {
+  const ref = AR.renderer.xr.getReferenceSpace();
+  if (frame && AR.hitSource) {
+    const hs = frame.getHitTestResults(AR.hitSource);
+    if (hs.length) {
+      const pose = hs[0].getPose(ref);
+      AR.hit = hs[0]; AR.hitM.fromArray(pose.transform.matrix);
+      AR.ret.matrix.copy(AR.hitM);
+      const ny = AR.hitM.elements[5];
+      AR.ret.children[0].material.color.set(Math.abs(ny) < 0.5 ? 0xE08E0B : 0x4FA3FF);
+    } else AR.hit = null;
+    AR.ret.visible = !!AR.hit && AR.estado !== 'ok';
+    $('#xr-mira').style.display = AR.estado !== 'ok' ? '' : 'none';
+    const tem = !!AR.hit;
+    if (AR.estado !== 'ok' && tem !== ultimaMsgHit) {
+      ultimaMsgHit = tem;
+      const alvo = AR.estado === 'ponto2' ? AR.ponto2.id : campo.ponto.id;
+      xrMsg(tem ? `Ponha o círculo no <b>centro do QR ${esc(alvo)}</b> e toque na tela.`
+        : 'Procurando a superfície… mova o celular devagar, de lado, apontando para a folha.');
+    }
+    if (AR.anchor && frame.trackedAnchors && frame.trackedAnchors.has(AR.anchor)) {
+      const ap = frame.getPose(AR.anchor.anchorSpace, ref);
+      if (ap) AR.A.fromArray(ap.transform.matrix);
+    }
+  }
+  if (AR.modelo) { AR.modelo.matrix.multiplyMatrices(AR.A, AR.L); AR.modelo.matrixWorldNeedsUpdate = true; }
+  AR.renderer.render(AR.scene, AR.camera);
+}
+
+function aoTocar() {
+  if (AR.estado === 'ancorar') ancorar();
+  else if (AR.estado === 'ponto2') refinar();
+}
+
+async function ancorar() {
+  if (!AR.hit) { xrMsg('Ainda não achei a superfície. Mova o celular devagar até aparecer o círculo.'); vibrar(120); return; }
+  const hit = AR.hit, M = AR.hitM.clone();
+  const P = new THREE.Vector3().setFromMatrixPosition(M);
+  const n = new THREE.Vector3().setFromMatrixColumn(M, 1).normalize();
+  const f = frenteCamera(), pt = campo.ponto;
+  let ang;
+  if (pt.tipo === 'parede') {
+    if (Math.abs(n.y) > 0.5) { xrMsg('O círculo está no piso ou no teto. Aponte para o QR na <b>parede</b>.'); vibrar(120); return; }
+    if (n.x * f.x + n.z * f.z > 0) n.negate();          // normal virada para quem olha
+    ang = angH(n.x, n.z);
+  } else {
+    if (n.y < 0.5) { xrMsg('Este QR fica no <b>piso</b>. Aponte o círculo para a folha no chão.'); vibrar(120); return; }
+    ang = angH(f.x, f.z);                                 // olhando na direção da seta
+  }
+  const Wn = matrizModelo(P, ang - pt.a, vec(pt.p));
+  if (AR.anchor && AR.anchor.delete) { try { AR.anchor.delete(); } catch (e) { /* segue */ } }
+  AR.anchor = null; AR.A.identity();
+  if (hit.createAnchor) { try { AR.anchor = await hit.createAnchor(); AR.A.copy(M); } catch (e) { AR.anchor = null; } }
+  definirW(Wn);
+  AR.modelo.visible = true; AR.estado = 'ok'; AR.ancorado = true; ultimaMsgHit = null;
+  vibrar(60);
+  xrMsg(`Modelo posicionado no <b>${esc(pt.id)}</b>. O quadrado dourado deve cair sobre a folha.` +
+    (pt.tipo === 'piso' ? ' O giro foi estimado pela sua direção: use <b>2º ponto</b> ou <b>Ajuste</b>.' : ' Para corrigir o giro, use <b>2º ponto</b> a 5 m ou mais.'));
+  xrInfo(AR.anchor ? 'Âncora ativa: o modelo acompanha as correções do rastreamento.' : 'Sem âncora neste aparelho: reposicione se o modelo escorregar.');
+}
+
+function refinar() {
+  if (!AR.hit) { xrMsg('Ainda não achei a superfície do QR ' + esc(AR.ponto2.id) + '. Mova o celular devagar.'); vibrar(120); return; }
+  const P2r = new THREE.Vector3().setFromMatrixPosition(AR.hitM);
+  const p1m = vec(campo.ponto.p), p2m = vec(AR.ponto2.p);
+  const P1r = p1m.clone().applyMatrix4(W());
+  const vm = p2m.clone().sub(p1m), vr = P2r.clone().sub(P1r);
+  const dm = Math.hypot(vm.x, vm.z), dr = Math.hypot(vr.x, vr.z);
+  if (dm < 0.5 || dr < 0.5) { xrMsg('Os dois pontos estão perto demais (menos de 0,5 m). Escolha um QR mais afastado.'); vibrar(120); return; }
+  const e = W().elements, giroAntes = Math.atan2(e[8], e[10]);
+  const theta = angH(vr.x, vr.z) - angH(vm.x, vm.z);
+  definirW(matrizModelo(P1r, theta, p1m));
+  let dGiro = (theta - giroAntes) * 180 / Math.PI;
+  dGiro = ((dGiro + 540) % 360) - 180;
+  AR.estado = 'ok'; ultimaMsgHit = null; vibrar(60);
+  const dif = Math.abs(dr - dm) * 100, dz = Math.abs((P2r.y - P1r.y) - (p2m.y - p1m.y)) * 100;
+  xrMsg(`Giro corrigido com <b>${esc(campo.ponto.id)}–${esc(AR.ponto2.id)}</b> (mudou ${fmt(Math.abs(dGiro), 1)}°).`);
+  xrInfo(`Distância medida ${fmt(dr, 2)} m · modelo ${fmt(dm, 2)} m · diferença ${fmt(dif, 0)} cm na horizontal e ${fmt(dz, 0)} cm na altura` +
+    (dif > 5 || dz > 5 ? ' · <b>diferença alta: confira a colagem das folhas</b>' : ''));
+}
+
+function ajustar(acao, v) {
+  if (!AR.ancorado) { xrMsg('Posicione o modelo primeiro: toque no centro do QR.'); return; }
+  const cm = AR.passo / 100, grau = (AR.passo === 1 ? 0.2 : 1) * Math.PI / 180;
+  const Wa = W(); let D;
+  if (acao === 'giro') {
+    const piv = vec(campo.ponto.p).applyMatrix4(Wa);
+    D = new THREE.Matrix4().makeTranslation(piv.x, piv.y, piv.z).multiply(new THREE.Matrix4().makeRotationY(v * grau))
+      .multiply(new THREE.Matrix4().makeTranslation(-piv.x, -piv.y, -piv.z));
+  } else {
+    const f = frenteCamera(), dir = new THREE.Vector3(-f.z, 0, f.x); let d;
+    if (acao === 'lado') d = dir.multiplyScalar(v * cm);
+    else if (acao === 'frente') d = f.multiplyScalar(v * cm);
+    else d = new THREE.Vector3(0, v * cm, 0);
+    D = new THREE.Matrix4().makeTranslation(d.x, d.y, d.z);
+  }
+  definirW(D.multiply(Wa)); vibrar(15);
+}
+
+function aplicarOpacidade() {
+  const o = (+$('#xr-opac').value) / 100;
+  AR.modelo && AR.modelo.children.forEach((m) => {
+    if (m.userData.marca || !m.material) return;
+    const base = m.material.userData.opacBase ?? 1, op = Math.min(base, o);
+    m.material.opacity = op; m.material.transparent = op < 0.99; m.material.depthWrite = op >= 0.99; m.material.needsUpdate = true;
+  });
+}
+$('#xr-opac').addEventListener('input', aplicarOpacidade);
+
+function fecharPaineis() {
+  document.querySelectorAll('.xr-painel').forEach((p) => { p.hidden = true; });
+  document.querySelectorAll('.xr-barra button').forEach((b) => b.classList.remove('ativo'));
+}
+document.querySelectorAll('.xr-bloq').forEach((el) => el.addEventListener('beforexrselect', (e) => e.preventDefault()));
+document.querySelector('.xr-barra').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const p = b.dataset.painel;
+  if (p === 'sair') { AR.session && AR.session.end(); return; }
+  if (p === 'reposicionar') {
+    fecharPaineis(); AR.estado = 'ancorar'; ultimaMsgHit = null;
+    xrMsg(`Ponha o círculo no <b>centro do QR ${esc(campo.ponto.id)}</b> e toque na tela.`); return;
+  }
+  const painel = document.getElementById(p), abrir = painel.hidden;
+  fecharPaineis();
+  if (abrir) {
+    painel.hidden = false; b.classList.add('ativo');
+    if (p === 'xr-p-ponto2') {
+      const outros = campo.pontos.filter((q) => q.id !== campo.ponto.id);
+      $('#xr-lista-p2').innerHTML = outros.length
+        ? outros.map((q) => `<button type="button" data-p2="${esc(q.id)}" style="flex:0 0 calc(33% - 4px)">${esc(q.id)}<br><small>${esc(q.nome.slice(0, 18))}</small></button>`).join('')
+        : '<span style="flex:1;font-size:13px;color:#C9D6EA">Não há outro ponto neste modelo. Gere o pacote .glb com 2 pontos ou mais.</span>';
+    }
+  }
+});
+$('#xr-lista-p2').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-p2]'); if (!b) return;
+  if (!AR.ancorado) { xrMsg('Posicione primeiro no QR ' + esc(campo.ponto.id) + '.'); fecharPaineis(); return; }
+  AR.ponto2 = campo.pontos.find((q) => q.id === b.dataset.p2);
+  fecharPaineis(); AR.estado = 'ponto2'; ultimaMsgHit = null;
+  xrMsg(`Vá até o QR <b>${esc(AR.ponto2.id)}</b>, ponha o círculo no centro dele e toque na tela.`);
+});
+$('#xr-p-ajuste').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-acao]'); if (!b) return;
+  if (b.dataset.acao === 'passo') {
+    AR.passo = +b.dataset.v;
+    $('#xr-p-ajuste').querySelectorAll('[data-acao=passo]').forEach((k) => k.classList.toggle('ativo', k === b));
+    return;
+  }
+  ajustar(b.dataset.acao, +b.dataset.v);
+});
+
+/* para testes no computador */
+window.RA = { est, campo, AR, matrizModelo, definirRascunho, tresParaIfc, ifcParaTres, urlDoPonto, angH, NORTE, ancorar, refinar, W, definirW };
+
+if (qs.has('ra')) iniciarCampo();
+</script>
+</body>
+</html>
